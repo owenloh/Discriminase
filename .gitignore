@@ -1,0 +1,49 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+
+# --- Compiled extensions (rebuilt locally; never committed) ---
+*.so
+*.pyd
+*.dll
+# Cython-generated C (regenerated from the .pyx)
+discriminase/bktree_cython.c
+
+# --- The database is large and regenerable: NEVER commit it ---
+database/
+*.trie
+*.bktree
+*.meta.json
+
+# --- Genomes / large inputs (fetched from NCBI on demand) ---
+*.fasta
+*.fa
+*.fna
+*.fastq
+
+# --- Outputs ---
+output/
+*.xlsx
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+*:Zone.Identifier
+
+# --- Secrets ---
+.env
+.env.*
+*.key
+*.pem
