@@ -107,6 +107,25 @@
   <div class="tip"><b>Saved vs Prebuilt, in one line:</b> <b>Saved</b> = a list <i>you</i> kept and still need to Build. <b>Prebuilt</b> = already Built by us, instant.</div>
 
   <div class="tip">💡 <b>Off-target tolerance</b> = how many mismatches still count as “would also cut a commensal.” Lower = stricter and safer. Nothing leaves your computer except genome downloads from NCBI.</div>
+
+  <h2 style="font-size:15px; margin-top:18px">What each parameter means</h2>
+  <p class="muted" style="font-size:12px; margin:6px 0">A guide sits next to a fixed <b>PAM</b> motif. The bases right beside the PAM are the <b>seed</b> — the stretch that matters most for whether the nuclease actually cuts. Below is a Cas12a site (PAM on the 5′ side):</p>
+  <pre style="background:#f0f0f6; border-radius:8px; padding:12px; font-size:11px; line-height:1.5; overflow-x:auto; white-space:pre; margin:8px 0">  5'   TTTV ACGTACGTAC GTACGTACGTACG   3'
+       ^^^^ ^^^^^^^^^^ ^^^^^^^^^^^^^
+       PAM  seed       rest of guide
+            └──────── guide ───────┘</pre>
+  <p class="muted" style="font-size:12px; margin:6px 0">For SpCas9 the PAM sits on the other side (3′, after the guide); the seed is still the part of the guide nearest the PAM.</p>
+  <ul style="padding-left:18px; margin:6px 0; font-size:13px">
+    <li><b>Nuclease preset</b> — quick Cas12a / SpCas9 defaults, or Custom to set the PAM yourself.</li>
+    <li><b>PAM</b> &amp; <b>PAM position</b> — the fixed motif (e.g. <code>TTTV</code>) and which side of the guide it sits on.</li>
+    <li><b>Guide length</b> — how long the whole <b>guide</b> block is (bases, PAM not counted).</li>
+    <li><b>Seed length</b> — how many PAM-proximal bases count as the <b>seed</b> (the left part of the guide above).</li>
+    <li><b>Seed mismatch tolerance</b> — mismatches allowed <i>inside the seed</i> before a commensal counts as “would be cut.” Usually strict (low).</li>
+    <li><b>Off-target tolerance</b> — mismatches allowed across the <i>whole</i> guide for that same test.</li>
+    <li><b>Min / Max GC</b> — allowed fraction of G+C bases in the guide (binding strength).</li>
+    <li><b>Max target guides</b> — stop after screening this many of the target's guides (<code>0</code> = all). Trades speed for completeness.</li>
+    <li><b>NCBI email</b> — optional; identifies you to NCBI for faster, more reliable genome downloads.</li>
+  </ul>
 </aside>
 
 <main>
@@ -117,17 +136,17 @@
       <summary>⚙️ Parameters — Cas12a defaults (click to change nuclease / strictness)</summary>
       <div class="grid" style="margin-top:14px">
         <div><label>Nuclease preset</label>
-          <select id="preset"><option value="cas12a">Cas12a (5′ TTTV)</option><option value="spcas9">SpCas9 (3′ NGG)</option><option value="custom">Custom</option></select></div>
+          <select id="preset"><option value="cas12a">Cas12a (5′ TTTV)</option><option value="spcas9">SpCas9 (3′ NGG)</option><option value="custom">Custom</option></select><span class="muted" style="font-size:11px">picks Cas12a / SpCas9 defaults (PAM + position), or Custom to set them yourself.</span></div>
         <div><label>PAM (IUPAC ok)</label><input id="pam" value="TTTV" /><span class="muted" style="font-size:11px">the fixed motif next to every guide. Need a spacer between PAM and guide? Pad it with N, e.g. <code>TTTN</code>.</span></div>
-        <div><label>PAM position</label><select id="side"><option value="5prime">Before the guide (5′, like Cas12a)</option><option value="3prime">After the guide (3′, like SpCas9)</option></select></div>
-        <div><label>Guide length</label><input id="guideLength" type="number" value="23" min="6" max="31" /></div>
-        <div><label>Seed length</label><input id="seedLen" type="number" value="10" min="1" /></div>
-        <div><label>Seed max mismatches</label><input id="seedMm" type="number" value="1" min="0" /></div>
-        <div><label>Off-target tolerance (total mismatches)</label><input id="totalMm" type="number" value="4" min="0" /></div>
-        <div><label>Min GC</label><input id="minGc" type="number" value="0.40" step="0.05" min="0" max="1" /></div>
-        <div><label>Max GC</label><input id="maxGc" type="number" value="0.60" step="0.05" min="0" max="1" /></div>
-        <div><label>Max guides (0 = all)</label><input id="maxGuides" type="number" value="1000" min="0" /></div>
-        <div><label>NCBI email <span class="muted">(optional)</span></label><input id="email" placeholder="optional — higher NCBI rate limits" /></div>
+        <div><label>PAM position</label><select id="side"><option value="5prime">Before the guide (5′, like Cas12a)</option><option value="3prime">After the guide (3′, like SpCas9)</option></select><span class="muted" style="font-size:11px">which side the fixed PAM motif sits on relative to the guide.</span></div>
+        <div><label>Guide length</label><input id="guideLength" type="number" value="23" min="6" max="31" /><span class="muted" style="font-size:11px">length of the guide (protospacer) in bases, not counting the PAM.</span></div>
+        <div><label>Seed length</label><input id="seedLen" type="number" value="10" min="1" /><span class="muted" style="font-size:11px">how many PAM-proximal bases count as the seed — the part most critical for cutting.</span></div>
+        <div><label>Seed mismatch tolerance</label><input id="seedMm" type="number" value="1" min="0" /><span class="muted" style="font-size:11px">mismatches allowed in the PAM-proximal seed — the part that matters most for cutting. Lower = stricter.</span></div>
+        <div><label>Off-target tolerance (total mismatches)</label><input id="totalMm" type="number" value="4" min="0" /><span class="muted" style="font-size:11px">total mismatches across the whole guide that still count as “would also cut a commensal.” Lower = stricter and safer.</span></div>
+        <div><label>Min GC</label><input id="minGc" type="number" value="0.40" step="0.05" min="0" max="1" /><span class="muted" style="font-size:11px">lowest allowed fraction of G+C bases — too low and the guide binds weakly.</span></div>
+        <div><label>Max GC</label><input id="maxGc" type="number" value="0.60" step="0.05" min="0" max="1" /><span class="muted" style="font-size:11px">highest allowed fraction of G+C bases — too high gets sticky and off-target-prone.</span></div>
+        <div><label>Max target guides <span class="muted">(0 = all)</span></label><input id="maxGuides" type="number" value="1000" min="0" /><span class="muted" style="font-size:11px">stop after screening this many of the target's guides — keeps big genomes fast. <code>0</code> screens every guide.</span></div>
+        <div><label>NCBI email <span class="muted">(optional)</span></label><input id="email" placeholder="optional — higher NCBI rate limits" /><span class="muted" style="font-size:11px">NCBI gives identified callers higher request limits, so genome searches and downloads go faster and fail less. Leave blank to stay anonymous.</span></div>
       </div>
     </details>
   </div>
@@ -230,6 +249,7 @@
   </div>
 
   <p class="muted" style="text-align:center">Runs entirely in your browser. Only genome downloads go to NCBI. <a href="https://github.com/owenloh/Discriminase">source &amp; docs</a></p>
+  <p class="muted" style="text-align:center; font-size:13px">Created by <b>Owen Loh</b> — <a href="https://owenloh.github.io/">website</a> · <a href="https://www.linkedin.com/in/olzm/">LinkedIn</a> · <a href="mailto:owenloh0607@gmail.com">owenloh0607@gmail.com</a><br />Questions, ideas, or improvements? Get in touch.</p>
 </main>
 <script src="./config.js"></script>
 <script type="module" src="./app.mjs"></script>

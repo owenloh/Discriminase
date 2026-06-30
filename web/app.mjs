@@ -357,7 +357,7 @@ function renderResults(rows, meta = {}) {
     note.textContent = `Stopped early — the ${rows.length.toLocaleString()} guides above are what was found in the first ${scanned.toLocaleString()} of ${total.toLocaleString()} target guides. Press Run to screen the whole target from the start.`;
     note.style.display = "block";
   } else if (capped) {
-    note.textContent = `Stopped at the Max guides cap (${maxGuides.toLocaleString()}) — ${(total - scanned).toLocaleString()} target guides weren't screened. Raise “Max guides”, or narrow to a region (Step 2) to search a different part of the genome.`;
+    note.textContent = `Stopped at the Max target guides cap (${maxGuides.toLocaleString()}) — ${(total - scanned).toLocaleString()} target guides weren't screened. Raise “Max target guides”, or narrow to a region (Step 2) to search a different part of the genome.`;
     note.style.display = "block";
   } else {
     note.style.display = "none";
