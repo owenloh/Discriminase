@@ -60,7 +60,7 @@ function savePanelState() {
   store.saveSetting("panel", state.panel.filter((s) => !s.uploaded).map((s) => ({ name: s.name, accession: s.accession, taxid: s.taxid })));
 }
 
-async function searchInto(query, container, onPick) {
+async function searchInto(query, container, onPick, single = false) {
   container.style.display = "block";
   container.innerHTML = `<p class="muted" style="padding:8px">Searching…</p>`;
   try {
@@ -68,11 +68,18 @@ async function searchInto(query, container, onPick) {
     if (!cands.length) { container.innerHTML = `<p class="muted" style="padding:8px">No matches.</p>`; return; }
     const t = document.createElement("table");
     t.innerHTML = `<thead><tr><th>accession</th><th>length</th><th>description</th><th></th></tr></thead><tbody></tbody>`;
+    const tbody = t.querySelector("tbody");
     cands.forEach((c) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td>${c.accession}</td><td>${c.length_bp ? c.length_bp.toLocaleString() + " bp" : "?"}</td><td>${c.title.slice(0, 64)}</td><td><button class="ghost">pick</button></td>`;
-      tr.querySelector("button").onclick = () => onPick(c);
-      t.querySelector("tbody").appendChild(tr);
+      const btn = tr.querySelector("button");
+      btn.onclick = () => {
+        if (single) tbody.querySelectorAll("tr.picked").forEach((r) => { r.classList.remove("picked"); r.querySelector("button").textContent = "pick"; });
+        tr.classList.add("picked");
+        btn.textContent = single ? "✓ picked" : "✓ added";
+        onPick(c);
+      };
+      tbody.appendChild(tr);
     });
     container.innerHTML = ""; container.appendChild(t);
   } catch (e) { container.innerHTML = `<p class="bad" style="padding:8px">${e}</p>`; }
@@ -163,7 +170,9 @@ async function loadPrebuilt(prefix) {
 // --- target ----------------------------------------------------------------
 function setTarget(seq, label, info = { type: "unknown" }) {
   state.target = { seq, label, info };
-  $("t-status").innerHTML = `Target: <b>${label}</b> (${seq.length.toLocaleString()} bp)`;
+  const box = $("t-status");
+  box.classList.add("has");
+  box.innerHTML = `✓ Target: <b>${label}</b><br><span class="muted">${seq.length.toLocaleString()} bp · ${info.type}</span>`;
   track("target", targetSummary(info, seq));
   updateRunnable();
 }
@@ -206,7 +215,18 @@ function downloadCSV() {
   a.click(); URL.revokeObjectURL(a.href);
 }
 
-function setStatus(id, msg, bad) { const e = $(id); e.textContent = msg; e.className = "muted " + (bad ? "bad" : ""); }
+function csvCell(v) { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }
+function downloadPanel() {
+  if (!state.panel.length) return setStatus("build-status", "Panel is empty.", true);
+  const rows = state.panel.map((s) => `${csvCell(s.name)},${s.taxid || ""},${s.accession || ""}`);
+  const csv = ["organism_strain,taxid,accession", ...rows].join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "discriminase_panel.csv";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function setStatus(id, msg, bad) { const e = $(id); e.textContent = msg; e.classList.toggle("bad", !!bad); }
 
 // --- init ------------------------------------------------------------------
 function applyPreset() {
@@ -222,11 +242,14 @@ function init() {
   (store.loadSetting("panel", []) || []).forEach((s) => state.panel.push(s));
   renderPanel(); refreshSavedPanels(); loadPrebuiltList(); initAnalytics();
 
-  // onboarding guide: show until dismissed, reopen via the header button
-  const guide = $("guide");
-  if (store.loadSetting("guideSeen", false)) guide.style.display = "none";
-  $("guide-toggle").onclick = () => { guide.style.display = guide.style.display === "none" ? "block" : "none"; };
-  $("guide-close").onclick = () => { guide.style.display = "none"; store.saveSetting("guideSeen", true); };
+  // onboarding guide: a right-side drawer. Opens on first visit, reopen via header.
+  const guide = $("guide"), overlay = $("guide-overlay");
+  const openGuide = (v) => { guide.classList.toggle("open", v); overlay.classList.toggle("open", v); };
+  if (!store.loadSetting("guideSeen", false)) openGuide(true);
+  const dismiss = () => { openGuide(false); store.saveSetting("guideSeen", true); };
+  $("guide-toggle").onclick = () => openGuide(!guide.classList.contains("open"));
+  $("guide-close").onclick = dismiss;
+  overlay.onclick = dismiss;
 
   $("prebuilt").onchange = (e) => { if (e.target.value) loadPrebuilt(e.target.value); };
   $("preset").onchange = applyPreset;
@@ -246,13 +269,14 @@ function init() {
   };
 
   $("t-search").onclick = () => { const q = $("t-name").value.trim(); if (!q) return; track("search_target", { query: q }); searchInto(q, $("t-results"),
-    async (c) => { setStatus("t-status", `Fetching ${c.accession}…`); try { const { seq } = await ncbi.fetchSequence(c.accession, { email: params().email }); setTarget(seq, c.accession, { type: "name", value: c.accession, name: q }); } catch (err) { setStatus("t-status", String(err), true); } }); };
+    async (c) => { setStatus("t-status", `Fetching ${c.accession}…`); try { const { seq } = await ncbi.fetchSequence(c.accession, { email: params().email }); setTarget(seq, c.accession, { type: "name", value: c.accession, name: q }); } catch (err) { setStatus("t-status", String(err), true); } }, true); };
   $("t-use-acc").onclick = async () => { const a = $("t-acc").value.trim(); if (!a) return; setStatus("t-status", `Fetching ${a}…`); try { const { seq } = await ncbi.fetchSequence(a, { email: params().email }); setTarget(seq, a, { type: "accession", value: a }); } catch (e) { setStatus("t-status", String(e), true); } };
   $("t-file").onchange = async (e) => { const f = e.target.files[0]; if (f) setTarget(await readFasta(f), f.name, { type: "upload", name: f.name }); };
   $("t-use-paste").onclick = () => { const s = $("t-paste").value.replace(/\s/g, ""); if (s) setTarget(s, "pasted_sequence", { type: "paste" }); };
 
   $("run-btn").onclick = run;
   $("dl-btn").onclick = downloadCSV;
+  $("cp-download").onclick = downloadPanel;
   updateRunnable();
 }
 
