@@ -1,20 +1,22 @@
 """Discriminase: commensal-sparing CRISPR guide discovery."""
 from .config import GuideFinderConfig
-from .encoding import TwoBitDNA
-from .trie import BitGuideTrie
-from .bktree import BKTreeBitarray, hamming_distance
-from .guides import build_valid_target_guides, build_pam_valid_guides
-from .search import search_unique_guides
+from .index import GuideIndex
+from .database import build_index, build_from_panel_csv
+from .search import find_sparing_guides
+from .genome import extract_packed_guides, extract_target_guides
+from .pack import pack_guide, unpack_guide, hamming
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "GuideFinderConfig",
-    "TwoBitDNA",
-    "BitGuideTrie",
-    "BKTreeBitarray",
-    "hamming_distance",
-    "build_valid_target_guides",
-    "build_pam_valid_guides",
-    "search_unique_guides",
+    "GuideIndex",
+    "build_index",
+    "build_from_panel_csv",
+    "find_sparing_guides",
+    "extract_packed_guides",
+    "extract_target_guides",
+    "pack_guide",
+    "unpack_guide",
+    "hamming",
 ]

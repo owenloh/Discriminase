@@ -1,98 +1,145 @@
-"""Build the protected-guide database (trie + BK-tree) from a commensal panel.
+"""Build the commensal cut-site index, streaming one genome at a time.
 
-Fetches each commensal genome from NCBI, extracts every PAM-anchored guide,
-and indexes them into a trie (seed prefix) and a BK-tree (Hamming). These two
-files ARE the "things to spare" — the search rejects any target guide that
-collides with them. The database is regenerable, so it is never committed; see
-the README for how to (re)build or download it.
+Peak memory is bounded by a single genome plus its (tiny) packed guides -- never the
+whole panel -- which is what keeps the build off the OOM cliff the old trie/BK-tree
+build fell off. Each genome's guides are written to a temporary shard on disk; only at
+the end are the shards merged, sorted and de-duplicated into the final memmappable
+index (see :mod:`index`).
+
+``get_sequence`` is injected so the same builder serves local FASTAs (tests, custom
+panels) and NCBI downloads (real commensal panels) without caring which.
 """
-import json
 import os
+import tempfile
 import time
-from datetime import datetime
-from typing import List, Tuple
+from datetime import datetime, timezone
+from typing import Callable, List, Optional
+
+import numpy as np
 
 from .config import GuideFinderConfig
-from .ncbi import setup_entrez, fetch_genome_by_taxid
-from .guides import build_pam_valid_guides
-from .loaders import read_taxid_csv
-from .trie import BitGuideTrie
-from .bktree import BKTreeBitarray, hamming_distance
+from .genome import extract_packed_guides
+from .index import GuideIndex
+from .loaders import read_sequence_file, read_taxid_csv
+
+# A source describes one commensal: {"name", and one of "fasta"/"taxid"/"accession"}.
+Source = dict
+GetSequence = Callable[[Source], "tuple[str, dict]"]
 
 
-def _build_trie(guides, guide_length: int) -> BitGuideTrie:
-    trie = BitGuideTrie()
-    for genome, pos, is_rev in guides:
-        bits = genome.get_encoded_slice(pos, guide_length, is_rev)
-        if len(bits) == 2 * guide_length:
-            trie.insert(bits)
-    return trie
-
-
-def _build_bktree(guides, guide_length: int) -> BKTreeBitarray:
-    bktree = BKTreeBitarray(hamming_distance)
-    for genome, pos, is_rev in guides:
-        bits = genome.get_encoded_slice(pos, guide_length, is_rev)
-        if len(bits) == 2 * guide_length:
-            bktree.insert((bits, genome, pos, is_rev))
-    return bktree
-
-
-def build_database(commensals_csv: str, config: GuideFinderConfig) -> dict:
-    """Fetch commensal genomes and build + save the trie and BK-tree.
-
-    Returns a summary dict with file paths and per-organism success/failure.
-    """
-    setup_entrez(config.email)
+def build_index(
+    sources: List[Source],
+    config: GuideFinderConfig,
+    get_sequence: GetSequence,
+    progress: Callable[[str], None] = print,
+) -> GuideIndex:
+    """Stream genomes -> shards -> one merged, sorted, de-duplicated GuideIndex."""
     os.makedirs(config.db_dir, exist_ok=True)
+    organisms: List[dict] = []
+    failed: List[dict] = []
 
-    organisms = read_taxid_csv(commensals_csv)
-    print(f"Loaded {len(organisms)} commensal organisms from {commensals_csv}")
-
-    genomes = []
-    succeeded: List[Tuple[str, str]] = []
-    failed: List[Tuple[str, str, str]] = []
     t0 = time.time()
-    for name, taxid in organisms:
-        try:
-            print(f"  fetching {name} (txid{taxid}) ...", flush=True)
-            genomes.append(fetch_genome_by_taxid(taxid, name))
-            succeeded.append((name, taxid))
-        except Exception as e:  # noqa: BLE001 - report and continue
-            print(f"    ! failed: {e}")
-            failed.append((name, taxid, str(e)))
-    print(f"Fetched {len(genomes)}/{len(organisms)} genomes in {time.time() - t0:.1f}s")
+    with tempfile.TemporaryDirectory(dir=config.db_dir) as tmp:
+        shards: List[tuple] = []          # (guides_path, org_index, count)
+        for src in sources:
+            name = src.get("name", "?")
+            try:
+                seq, meta = get_sequence(src)
+            except Exception as e:        # noqa: BLE001 - report and continue
+                progress(f"  ! {name}: {e}")
+                failed.append({**src, "error": str(e)})
+                continue
 
-    if not genomes:
-        raise RuntimeError("No genomes fetched; cannot build database.")
+            packed = extract_packed_guides(
+                seq, config.guide_length, config.pam,
+                config.pam_to_guide_gap, config.pam_side,
+            )
+            org_index = len(organisms)
+            organisms.append(
+                {
+                    "name": name,
+                    "taxid": meta.get("taxid"),
+                    "accession": meta.get("accession"),
+                    "length_bp": len(seq),
+                    "n_guides": int(packed.size),
+                }
+            )
+            shard = os.path.join(tmp, f"shard_{org_index}.npy")
+            np.save(shard, packed)
+            shards.append((shard, org_index, int(packed.size)))
+            progress(
+                f"  [{org_index + 1}/{len(sources)}] {name}: "
+                f"{len(seq):,} bp -> {packed.size:,} guides"
+            )
+            del seq, packed               # free before the next genome
 
-    print("Extracting protected guides ...")
-    t0 = time.time()
-    guides = build_pam_valid_guides(genomes, config)
-    print(f"  {len(guides)} guides in {time.time() - t0:.1f}s")
+        if not shards:
+            raise RuntimeError("no genomes ingested; cannot build index")
 
-    print("Building trie ...")
-    t0 = time.time()
-    trie = _build_trie(guides, config.guide_length)
-    trie.save(config.trie_path())
-    print(f"  {trie.count_guides()} unique guides -> {config.trie_path()} ({time.time() - t0:.1f}s)")
+        total = sum(c for _, _, c in shards)
+        progress(f"Merging {len(shards)} shards ({total:,} guides) ...")
+        all_guides = np.empty(total, dtype=np.uint64)
+        all_orgs = np.empty(total, dtype=np.uint16)
+        at = 0
+        for shard, org_index, count in shards:
+            all_guides[at : at + count] = np.load(shard)
+            all_orgs[at : at + count] = org_index
+            at += count
 
-    print("Building BK-tree ...")
-    t0 = time.time()
-    bktree = _build_bktree(guides, config.guide_length)
-    bktree.save(config.bktree_path())
-    print(f"  {bktree.count_guides()} guides -> {config.bktree_path()} ({time.time() - t0:.1f}s)")
-
-    summary = {
-        "guide_length": config.guide_length,
-        "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "trie_file": config.trie_path(),
-        "bktree_file": config.bktree_path(),
-        "commensals_successful": [{"organism_strain": n, "taxid": t} for n, t in succeeded],
-        "commensals_failed": [{"organism_strain": n, "taxid": t, "error": e} for n, t, e in failed],
+    meta = {
+        "pam": config.pam,
+        "pam_side": config.pam_side,
+        "pam_to_guide_gap": config.pam_to_guide_gap,
+        "seed_max_mismatch": config.seed_max_mismatch,
+        "total_max_mismatch": config.total_max_mismatch,
+        "created_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "failed": failed,
     }
-    meta_path = os.path.join(config.db_dir, f"{config.db_prefix}_len{config.guide_length}.meta.json")
-    with open(meta_path, "w", encoding="utf-8") as fh:
-        json.dump(summary, fh, indent=2)
-    print(f"Wrote build manifest -> {meta_path}")
-    return summary
+    index = GuideIndex.from_packed(
+        all_guides,
+        config.guide_length,
+        config.seed_len,
+        org_ids=all_orgs,
+        organisms=organisms,
+        meta=meta,
+    )
+    index.save(config.index_prefix())
+    progress(
+        f"Index: {len(index):,} unique guides from {len(organisms)} organisms "
+        f"-> {config.index_prefix()}.idx.npy  ({time.time() - t0:.1f}s)"
+    )
+    return index
+
+
+# --- get_sequence implementations ------------------------------------------
+def local_get_sequence(src: Source) -> "tuple[str, dict]":
+    """Read a commensal genome from a local FASTA path (no network)."""
+    seq = read_sequence_file(src["fasta"])
+    return seq, {"accession": src.get("accession"), "taxid": src.get("taxid")}
+
+
+def make_ncbi_get_sequence(config: GuideFinderConfig) -> GetSequence:
+    """Fetch (and cache) a representative genome per commensal from NCBI."""
+    from . import ncbi
+
+    ncbi.setup_entrez(config.email)
+
+    def _get(src: Source) -> "tuple[str, dict]":
+        if src.get("fasta"):
+            return local_get_sequence(src)
+        if src.get("accession"):
+            return ncbi.fetch_sequence_by_accession(src["accession"], config.cache_dir)
+        if src.get("taxid"):
+            return ncbi.fetch_sequence_by_taxid(src["taxid"], config.cache_dir, src.get("name"))
+        raise ValueError(f"source has no fasta/accession/taxid: {src}")
+
+    return _get
+
+
+def build_from_panel_csv(csv_path: str, config: GuideFinderConfig,
+                         progress: Callable[[str], None] = print) -> GuideIndex:
+    """Build from a panel CSV (headers: taxid, organism_strain) via NCBI."""
+    organisms = read_taxid_csv(csv_path)
+    sources = [{"name": name, "taxid": taxid} for name, taxid in organisms]
+    progress(f"Loaded {len(sources)} commensals from {csv_path}")
+    return build_index(sources, config, make_ncbi_get_sequence(config), progress)

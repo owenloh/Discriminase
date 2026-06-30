@@ -24,6 +24,12 @@ database/
 *.trie
 *.bktree
 *.meta.json
+*.npy
+
+# --- Prebuilt web panels: large + regenerable (`discriminase export-web`).
+#     Keep the manifest; generate the binaries at deploy time. ---
+web/panels/*
+!web/panels/index.json
 
 # --- Genomes / large inputs (fetched from NCBI on demand) ---
 *.fasta

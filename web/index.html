@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Discriminase — commensal-sparing CRISPR guide finder</title>
+<style>
+  :root {
+    --fg:#1b1b2b; --mut:#6b7280; --line:#e6e6ef; --accent:#3a6ea5; --accent2:#5a8fd6;
+    --ok:#1a7f37; --bad:#b42318; --bg:#f5f6fa; --card:#fff; --soft:#eef3fb;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--fg); background:var(--bg); }
+  header { padding:20px 24px; background:linear-gradient(120deg,#2b4c7e,#3a6ea5); color:#fff; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  header .brand h1 { margin:0; font-size:21px; letter-spacing:.2px; }
+  header .brand p { margin:3px 0 0; font-size:13px; opacity:.9; }
+  header button { background:rgba(255,255,255,.16); color:#fff; border:1px solid rgba(255,255,255,.35); }
+  main { max-width:1080px; margin:0 auto; padding:20px; display:grid; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; box-shadow:0 1px 2px rgba(20,30,60,.04); }
+  .card h2 { margin:0 0 4px; font-size:16px; display:flex; align-items:center; gap:9px; }
+  .badge { display:inline-grid; place-items:center; width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff; font-size:13px; font-weight:700; }
+  .hint { margin:0 0 14px; color:var(--mut); font-size:13px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:12px; }
+  label { display:block; font-size:12px; color:var(--mut); margin-bottom:4px; }
+  input, select, textarea, button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  input, select, textarea { width:100%; }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--accent2); outline-offset:0; border-color:var(--accent2); }
+  button { cursor:pointer; background:var(--accent); color:#fff; border-color:var(--accent); white-space:nowrap; font-weight:600; transition:filter .12s; }
+  button:hover:not(:disabled) { filter:brightness(1.08); }
+  button.ghost { background:#fff; color:var(--accent); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; position:sticky; top:0; background:#fbfbfe; }
+  .muted { color:var(--mut); font-size:13px; } .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .scroll { max-height:240px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+  details summary { cursor:pointer; font-weight:600; font-size:14px; color:var(--accent); }
+  progress { width:100%; height:14px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; }
+  .pill.ok { background:#e7f6ec; color:var(--ok); } .pill.bad { background:#fbeaea; color:var(--bad); }
+  code { background:#f0f0f6; padding:1px 5px; border-radius:4px; }
+  /* guide card */
+  #guide { background:var(--soft); border-color:#d6e2f4; }
+  #guide ol { margin:8px 0 0; padding-left:20px; } #guide li { margin:6px 0; }
+  #guide .tip { margin-top:12px; padding:10px 12px; background:#fff; border:1px dashed #cdd9ec; border-radius:8px; font-size:13px; }
+  .closebtn { float:right; background:transparent; color:var(--mut); border:none; font-size:18px; padding:0 4px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>🧬 Discriminase</h1>
+    <p>Find CRISPR guides that hit your target bacterium while sparing the surrounding microbiome — runs entirely in your browser.</p>
+  </div>
+  <button id="guide-toggle" class="ghost">📖 Guide</button>
+</header>
+<main>
+
+  <!-- Onboarding guide -->
+  <div class="card" id="guide">
+    <button class="closebtn" id="guide-close" title="Hide">✕</button>
+    <h2 style="margin-bottom:8px">How to use this — in 3 steps</h2>
+    <ol>
+      <li><b>Set your nuclease</b> (Parameters below). Pick <i>Cas12a</i> or <i>SpCas9</i>, or type a custom PAM. This decides which sites a guide can target.</li>
+      <li><b>Choose commensals to spare</b> — the bacteria you must <i>not</i> cut. Search NCBI and add them, upload FASTA files, or load a prebuilt panel, then press <b>Build / load index</b>.</li>
+      <li><b>Pick your target</b> — the bacterium you want to hit. Search by name and click the exact strain, or paste/upload a sequence.</li>
+    </ol>
+    <p style="margin:10px 0 0">Then press <b>Run</b>. You get guides that match the target but stay clear of every commensal — download them as CSV.</p>
+    <div class="tip">💡 <b>Off-target tolerance</b> = how many mismatches still count as “would also cut a commensal.” Lower = stricter and safer (fewer guides); higher = more permissive. Nothing you enter leaves your computer except genome downloads from NCBI.</div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card">
+    <details id="settings" open>
+      <summary>⚙️ Parameters</summary>
+      <div class="grid" style="margin-top:12px">
+        <div><label>Nuclease preset</label>
+          <select id="preset"><option value="cas12a">Cas12a (5′ TTTV)</option><option value="spcas9">SpCas9 (3′ NGG)</option><option value="custom">Custom</option></select></div>
+        <div><label>PAM (IUPAC ok)</label><input id="pam" value="TTTV" /></div>
+        <div><label>PAM side</label><select id="side"><option value="5prime">5′ (before guide)</option><option value="3prime">3′ (after guide)</option></select></div>
+        <div><label>Gap (PAM↔guide)</label><input id="gap" type="number" value="1" min="0" /></div>
+        <div><label>Guide length</label><input id="guideLength" type="number" value="23" min="6" max="31" /></div>
+        <div><label>Seed length</label><input id="seedLen" type="number" value="10" min="1" /></div>
+        <div><label>Seed max mismatches</label><input id="seedMm" type="number" value="1" min="0" /></div>
+        <div><label>Off-target tolerance (total mismatches)</label><input id="totalMm" type="number" value="4" min="0" /></div>
+        <div><label>Min GC</label><input id="minGc" type="number" value="0.40" step="0.05" min="0" max="1" /></div>
+        <div><label>Max GC</label><input id="maxGc" type="number" value="0.60" step="0.05" min="0" max="1" /></div>
+        <div><label>Max guides (0 = all)</label><input id="maxGuides" type="number" value="1000" min="0" /></div>
+        <div><label>NCBI email</label><input id="email" placeholder="you@example.com" /></div>
+      </div>
+      <p class="muted" style="margin:10px 0 0">Choosing a preset fills PAM / side / lengths; everything stays editable. Settings auto-save in this browser.</p>
+    </details>
+  </div>
+
+  <!-- Step 1: commensals -->
+  <div class="card">
+    <h2><span class="badge">1</span> Commensals to spare</h2>
+    <p class="hint">The bacteria the guide must <b>not</b> cut. Add as many as you like, then build the index once.</p>
+    <div class="scroll" style="margin-bottom:10px"><table><thead><tr><th>Organism</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody id="panel-list"></tbody></table></div>
+    <div class="row">
+      <div style="flex:2"><label>Add by name (search NCBI)</label><input id="cp-name" placeholder="e.g. Escherichia coli K-12" /></div>
+      <button id="cp-search" class="ghost">Search</button>
+    </div>
+    <div id="cp-results" class="scroll" style="margin:8px 0; display:none"></div>
+    <div class="row">
+      <div style="flex:1"><label>Add by accession</label><input id="cp-acc" placeholder="e.g. NC_000913.3" /></div>
+      <button id="cp-add-acc" class="ghost">Add</button>
+      <div style="flex:1"><label>Add by taxid</label><input id="cp-tax" placeholder="e.g. 511145" /></div>
+      <button id="cp-add-tax" class="ghost">Add</button>
+      <div style="flex:1"><label>Upload FASTA</label><input id="cp-file" type="file" accept=".fa,.fasta,.fna,.txt" multiple /></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <select id="prebuilt" style="max-width:220px"><option value="">— prebuilt panel —</option></select>
+      <button id="build-btn">Build / load index</button>
+      <button id="cp-save" class="ghost">Save this panel</button>
+      <select id="saved-panels" style="max-width:190px"><option value="">— saved panels —</option></select>
+      <span id="build-status" class="muted"></span>
+    </div>
+  </div>
+
+  <!-- Step 2: target -->
+  <div class="card">
+    <h2><span class="badge">2</span> Target to hit</h2>
+    <p class="hint">The bacterium you want the guide to cut. A name lists every matching assembly — pick the exact one (the accession is the reproducible key).</p>
+    <div class="row">
+      <div style="flex:2"><label>Search by name</label><input id="t-name" placeholder="e.g. Salmonella enterica" /></div>
+      <button id="t-search" class="ghost">Search</button>
+    </div>
+    <div id="t-results" class="scroll" style="margin:8px 0; display:none"></div>
+    <div class="row">
+      <div style="flex:1"><label>By accession</label><input id="t-acc" placeholder="e.g. NZ_CP039503.1" /></div>
+      <button id="t-use-acc" class="ghost">Use</button>
+      <div style="flex:1"><label>Upload FASTA</label><input id="t-file" type="file" accept=".fa,.fasta,.fna,.txt" /></div>
+    </div>
+    <div style="margin-top:8px"><label>…or paste a DNA sequence</label><textarea id="t-paste" rows="2" placeholder="ACGT…"></textarea>
+      <button id="t-use-paste" class="ghost" style="margin-top:6px">Use pasted</button></div>
+    <p id="t-status" class="muted" style="margin:10px 0 0">No target chosen yet.</p>
+  </div>
+
+  <!-- Step 3: run -->
+  <div class="card">
+    <h2><span class="badge">3</span> Find commensal-sparing guides</h2>
+    <p class="hint">Screens every target guide against the panel and keeps the ones that hit nothing in it.</p>
+    <div class="row"><button id="run-btn" disabled>▶ Run</button><span id="run-status" class="muted"></span></div>
+    <progress id="run-progress" value="0" max="1" style="display:none; margin-top:10px"></progress>
+    <div id="results-wrap" style="display:none; margin-top:12px">
+      <div class="row" style="justify-content:space-between"><span id="results-count" class="ok"></span><button id="dl-btn" class="ghost">⬇ Download CSV</button></div>
+      <div class="scroll" style="margin-top:8px"><table><thead><tr><th>#</th><th>position</th><th>strand</th><th>guide (5′→3′)</th><th>GC</th></tr></thead><tbody id="results"></tbody></table></div>
+    </div>
+  </div>
+
+  <p class="muted" style="text-align:center">Runs entirely in your browser. Only genome downloads go to NCBI. <a href="https://github.com/owenloh/Discriminase">source &amp; docs</a></p>
+</main>
+<script type="module" src="./app.mjs"></script>
+</body>
+</html>

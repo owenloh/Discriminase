@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discriminase"
-version = "0.1.0"
+version = "0.3.0"
 description = "Commensal-sparing CRISPR guide discovery: find guides that hit a target bacterium while sparing the surrounding microbiome."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,14 +12,15 @@ license = { text = "MIT" }
 authors = [{ name = "Owen Loh" }]
 keywords = ["CRISPR", "bioinformatics", "guide-rna", "microbiome", "off-target"]
 dependencies = [
-    "bitarray>=2.8",
+    "numpy>=1.23",
     "pydantic>=2.0",
     "biopython>=1.80",
     "certifi",
 ]
 
+# The web UI is a static client-side app (web/) -- no Python web deps. `discriminase
+# web` serves it with the stdlib http.server.
 [project.optional-dependencies]
-fast = ["cython>=3.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
@@ -27,6 +28,3 @@ discriminase = "discriminase.cli:main"
 
 [tool.setuptools]
 packages = ["discriminase"]
-
-[tool.setuptools.package-data]
-discriminase = ["bktree_cython.pyx"]

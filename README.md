@@ -3,42 +3,49 @@
 **Commensal-sparing CRISPR guide discovery** — find guide RNAs that hit a target
 bacterium while sparing the surrounding microbiome.
 
-Given a target organism and a panel of commensal ("protected") genomes,
-Discriminase returns guides that match the target but are far (in Hamming
-distance) from everything in the panel. The search is a two-layer filter over
-2-bit-packed DNA: a **trie** seed prefilter followed by a **BK-tree**
-approximate-match check.
+Give it a target organism and a panel of commensal ("protected") genomes;
+Discriminase returns guides that match the target but stay clear — in a
+CRISPR-relevant, seed-anchored sense — of every genome in the panel.
 
 ```
-$ discriminase find --target "Salmonella enterica" --commensals data/commensals/gut_microbiome.csv
+$ discriminase find --target-accession NZ_CP039503.1 \
+                    --commensals data/commensals/gut_microbiome.csv
 
-[1/4] Resolving + fetching target ...
-      resolved: Salmonella enterica  (txid28901)
-      target: Salmonella enterica  (4,857,432 bp)
-[2/4] Extracting candidate guides ...
-      38,402 PAM-valid, GC-filtered guides  (6.1s)
-[3/4] Loading commensal database ...
-[4/4] Screening vs commensals  (<= 6 mismatches)
+[1/3] Resolving target ...
+      target: NZ_CP039503.1  (4,882,218 bp)
+[2/3] Loading commensal index ...
+      8,142,377 commensal guides from 52 organisms
+[3/3] Screening  (seed 10 nt, <= 1 seed / <= 4 total mismatches)
   screening [########################] 38402/38402  (142 kept)
       142 commensal-sparing guides  (3.4s)
 
-  142 guides -> output/Salmonella_enterica_guides.csv
+  142 guides -> output/NZ_CP039503_1_guides.csv
 ```
+
+Prefer clicking to typing? `discriminase web` opens a point-and-click UI.
 
 ## How it works
 
-1. **Encode** every genome as 2 bits/base (A=00, C=01, G=10, T=11). The reverse
-   complement is precomputed so both strands slice cheaply, and Hamming distance
-   becomes an XOR over the packed bits.
-2. **Build** (once, slow): fetch each commensal genome from NCBI, extract every
-   PAM-anchored guide, and index them into a **trie** (exact seed prefixes) and a
-   **BK-tree** (Hamming metric). These two files are the "things to spare."
-3. **Find** (fast, repeatable): for each candidate guide in the target,
-   * reject it if its first `sig_cutoff` (default 13) bases exactly match any
-     commensal guide — the trie answers this in O(k) and removes most candidates;
-   * otherwise reject it if any commensal guide is within `max_mismatches`
-     Hamming distance — the BK-tree prunes via the triangle inequality.
-   What survives hits the target and is distant from the whole commensal panel.
+A guide of up to 31 nt **is a single 64-bit integer** (2 bits/base, A=0 C=1 G=2 T=3),
+stored PAM-proximal (seed) first. That one idea drives everything:
+
+1. **Encode** each genome as 2-bit codes and slide a PAM-anchored window over both
+   strands to pull out every candidate guide, packed to a `uint64`.
+2. **Build** (once): stream the commensal panel one genome at a time, writing packed
+   guides to disk, then merge into a single **sorted `uint64` array** — the index. It
+   is memory-mapped, so loading is instant and uses almost no RAM.
+3. **Find** (fast, repeatable): for each target guide, binary-search the index for
+   commensals that share its **seed** (the PAM-proximal bases), then verify the full
+   Hamming distance on that small block. A guide is kept only if **no** commensal is
+   within the seed-anchored tolerance.
+
+The distance model is **seed-anchored** because CRISPR specificity is dominated by the
+PAM-proximal region: a guide collides with a commensal when their seeds match within
+`seed_max_mismatch` *and* the full guides match within `total_max_mismatch`.
+
+New to this? [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) is a no-skipping, visual
+walkthrough from raw DNA to the keep/drop decision. Design rationale + measured
+numbers: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Install
 
@@ -55,79 +62,104 @@ NCBI asks callers to identify themselves. Set your email once:
 export NCBI_EMAIL="you@example.com"   # or pass --email on any command
 ```
 
-## Usage
+## Use it
 
-### 1. Build a commensal database (one time)
+### Web app (easiest — runs in the browser, no backend)
+
+The UI in `web/` is a **static client-side app**: all computation (genome download,
+indexing, search) happens in the user's browser. Serve it locally with:
+
+```bash
+discriminase web        # serves web/ at http://localhost:8501
+```
+
+Or host the `web/` folder anywhere static (Netlify, GitHub Pages, Railway-static) and
+share the link — there is no server to run. See [Host it](#host-it-no-backend).
+
+In the app: set the nuclease/parameters (presets for Cas12a & SpCas9, or a custom PAM)
+→ build a commensal panel (search NCBI and add, upload FASTA, or load a prebuilt panel)
+→ pick a target (search-and-click, accession, paste, or upload) → **Run** → download
+the CSV. Panels and parameters are saved in the browser, so a reload won't lose them.
+
+### Command line
+
+**1 · Build a commensal index (one time, slow — downloads genomes):**
 
 ```bash
 discriminase build --commensals data/commensals/gut_microbiome.csv
-# -> database/protected_guides_len23.trie
-#    database/protected_guides_len23.bktree
-#    database/protected_guides_len23.meta.json   (which organisms went in)
+# -> database/gut_microbiome_len23.idx.npy   (sorted uint64 guides)
+#    database/gut_microbiome_len23.org.npy   (which organism each came from)
+#    database/gut_microbiome_len23.meta.json (panel + parameters)
 ```
 
-The panel CSV is just two columns:
+Panel CSV is two columns:
 
 ```csv
 taxid,organism_strain
 511145,Escherichia coli MG1655
 226186,Bacteroides thetaiotaomicron VPI-5482
-...
 ```
 
-### 2. Find commensal-sparing guides for a target
+**2 · Pick a target.** A species name maps to many assemblies, so a name **lists
+candidates** and never silently guesses — the accession is the reproducible key:
 
 ```bash
-# by name (resolved to a taxid on NCBI)
-discriminase find --target "Salmonella enterica"
-
-# by taxid
-discriminase find --target-taxid 28901
-
-# by your own sequence file (.txt / .fa / .fasta / .fna)
-discriminase find --target-seq my_target.fasta
+discriminase search-target "Salmonella enterica"
+#  #  accession         length        description
+#  1  NZ_CP191545.1     4,898,209 bp  Salmonella enterica strain PP14-31 chromosome...
+#  ...
 ```
 
-Useful knobs: `--similarity 0.70` (off-target tolerance), `--min-gc/--max-gc`,
-`--max-guides`, `--no-seed-filter`, `--out path.csv`. If the database does not
-exist yet, pass `--commensals <panel.csv>` to `find` to auto-build it.
-
-## The database is not in this repo (on purpose)
-
-A built database is large (hundreds of MB to >1 GB) and fully regenerable from
-the panel CSV, so it is **git-ignored**. Get one by either:
-
-- running `discriminase build ...` yourself, or
-- downloading a prebuilt artifact from the repo's **Releases** (files >100 MB are
-  fine as release assets, unlike normal git objects).
-
-> The database is serialized with `pickle`. Only load databases you built or
-> trust — unpickling untrusted data can execute arbitrary code. A compact,
-> safe-to-share binary format is on the roadmap.
-
-## Speed (optional C extension)
-
-The Hamming distance has a Cython implementation. It is optional — a pure-Python
-fallback runs automatically — but ~10x faster:
+**3 · Find sparing guides** (pick one input — accession is preferred):
 
 ```bash
-pip install cython
-cythonize -i discriminase/bktree_cython.pyx   # builds discriminase/bktree_cython*.so
+discriminase find --target-accession NZ_CP191545.1     # reproducible
+discriminase find --target-taxid 28901                 # representative genome
+discriminase find --target-seq my_target.fasta         # your own sequence
+discriminase find --target "Salmonella enterica" --pick 1   # list + pick #N
 ```
+
+Knobs: `--total-mm` (off-target tolerance), `--seed-len`, `--seed-mm`,
+`--min-gc/--max-gc`, `--max-guides`, `--out`. Pass `--commensals <panel.csv>` to
+`find` to auto-build the index if it is missing.
+
+## The index is not in this repo (on purpose)
+
+A built index is regenerable from the panel CSV, so it is **git-ignored**. Build it
+yourself, or download a prebuilt artifact from **Releases** (large files are fine as
+release assets). The format is plain NumPy arrays — **no `pickle`**, so loading a
+shared index can't execute code.
+
+## Host it (no backend)
+
+The whole app is static files in `web/`. To put it online for others:
+
+- **Netlify / GitHub Pages / Cloudflare Pages:** publish the `web/` folder. Done —
+  share the URL. NCBI's genome API allows browser requests (CORS is open), so users'
+  browsers fetch genomes directly; nothing runs on your server.
+- **Prebuilt panels (optional):** so users don't have to build a panel themselves,
+  generate one offline and ship it as a static file:
+
+  ```bash
+  discriminase export-web --commensals data/commensals/gut_microbiome.csv \
+                          --name "Gut microbiome" --out-dir web/panels
+  ```
+
+  It appears in the app's "prebuilt panel" dropdown. Users can still build their own
+  panel (search NCBI in-browser) or upload FASTAs.
 
 ## Honest notes
 
-- **Nuclease / PAM.** The default PAM is a Cas12a/Cpf1-style 5′ `TTT` (set in
-  `config.py`). It is matched exactly, so a following T is also accepted. This is
-  *not* SpCas9 (which uses a 3′ `NGG`). Change `pam` / `pam_to_guide_gap` for a
-  different system.
-- **This is engineering, not a new algorithm.** Trie + BK-tree over packed DNA
-  is a fast, clean implementation of a well-studied problem (CRISPR off-target
-  search). The less-crowded angle is the *application*: multi-genome,
-  commensal-sparing design rather than single-reference editing.
-- **Benchmarks.** Speedups should be measured against purpose-built tools
-  (Cas-OFFinder, GuideScan2, FlashFry), not BLAST — BLAST is the wrong baseline
-  for fixed-length k-mer off-target search.
+- **Nuclease / PAM.** Default is a Cas12a/Cpf1-style 5′ `TTT` PAM (in `config.py`),
+  matched exactly. *Not* SpCas9 (3′ `NGG`). Change `pam` / `pam_to_guide_gap` for
+  another system.
+- **Engineering, not a new algorithm.** Packed k-mers + a sorted index is a clean,
+  fast take on a well-studied problem. The less-crowded angle is the *application*:
+  multi-genome, commensal-sparing design.
+- **Model, not truth.** Seed + Hamming is a deliberate approximation — no
+  position-weighted (CFD/MIT) scoring, no bulges, no wet-lab validation. See how it
+  stacks up against Cas-OFFinder / GuideScan2 / CRISPOR in
+  [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Related tools
 
@@ -136,13 +168,6 @@ cythonize -i discriminase/bktree_cython.pyx   # builds discriminase/bktree_cytho
 [CHOPCHOP](https://chopchop.cbu.uib.no/) ·
 [CRISPOR](http://crispor.tefor.net/) ·
 [FlashFry](https://github.com/mckennalab/FlashFry)
-
-## Roadmap
-
-- 🔜 Streamlit web UI: search NCBI, click to pick target + commensal panel, run
-  and download in the browser.
-- ⏭️ Compact, portable, `pickle`-free database format.
-- ⏭️ Honest benchmark suite vs Cas-OFFinder / GuideScan2.
 
 ## License
 

@@ -1,78 +1,78 @@
-"""The two-layer commensal-sparing search.
+"""Screen a target's guides against the commensal index.
 
-For each candidate guide from the target:
-  1. Trie seed prefilter — reject if it shares its first `sig_cutoff` bases
-     exactly with any protected (commensal) guide. O(k), kills most candidates.
-  2. BK-tree approximate match — reject if any protected guide is within
-     `max_mismatches` Hamming distance.
-What survives hits the target but is far from everything in the commensal panel.
+A target guide is kept (commensal-sparing) when the index finds no commensal cut-site
+within the seed-anchored distance model -- i.e. :meth:`GuideIndex.query` returns
+``None``. GC filtering is applied to the target guides first (it only makes sense for
+the guides we might actually use, not for the commensals we are sparing).
 """
 import sys
-from typing import List, Tuple
+from typing import Callable, List, Optional
 
-from bitarray import bitarray
+import numpy as np
 
 from .config import GuideFinderConfig
-from .encoding import TwoBitDNA
-from .trie import BitGuideTrie
-from .bktree import BKTreeBitarray
+from .genome import extract_target_guides, gc_fraction
+from .index import GuideIndex
+from .pack import unpack_guide
 
 
-def decode_bits(bits: bitarray) -> str:
-    decode_map = TwoBitDNA._decode_map
-    return ''.join(decode_map[bits[i:i + 2].to01()] for i in range(0, len(bits), 2))
-
-
-def _print_progress(done: int, total: int, found: int) -> None:
+def _progress(done: int, total: int, kept: int) -> None:
     if total == 0:
         return
-    bar_len = 24
-    filled = int(bar_len * done / total)
-    bar = "#" * filled + "-" * (bar_len - filled)
-    sys.stdout.write(f"\r  screening [{bar}] {done}/{total}  ({found} kept)")
+    bar = "#" * int(24 * done / total)
+    sys.stdout.write(f"\r  screening [{bar:<24}] {done}/{total}  ({kept} kept)")
     sys.stdout.flush()
 
 
-def search_unique_guides(
-    target_guides: List[Tuple[int, bool, bitarray]],
-    protected_trie: BitGuideTrie,
-    protected_bktree: BKTreeBitarray,
+def find_sparing_guides(
+    target_seq: str,
+    index: GuideIndex,
     config: GuideFinderConfig,
-    verbose: bool = False,
     progress: bool = True,
-) -> List[Tuple[int, bool, bitarray, str]]:
-    prefix_len = config.sig_cutoff
-    sim_thresh = config.similarity_threshold
-    max_guides = config.max_guides
-    total = len(target_guides)
-    unique: List[Tuple[int, bool, bitarray, str]] = []
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
+) -> List[dict]:
+    """Return commensal-sparing guides for ``target_seq`` as a list of row dicts."""
+    L = config.guide_length
+    packed, starts, strands = extract_target_guides(
+        target_seq, L, config.pam, config.pam_to_guide_gap, config.pam_side
+    )
+    flip = config.pam_side == "3prime"   # stored PAM-proximal-first -> show 5'->3'
 
-    try:
-        for i, (idx, rev, bits) in enumerate(target_guides):
-            if progress and (i % 200 == 0):
-                _print_progress(i, total, len(unique))
+    # GC filter (target guides only).
+    if packed.size:
+        frac = gc_fraction(packed, L)
+        keep = (frac >= config.min_gc) & (frac <= config.max_gc)
+        packed, starts, strands, frac = packed[keep], starts[keep], strands[keep], frac[keep]
+    else:
+        frac = np.empty(0)
 
-            # 1. trie seed prefilter
-            if config.if_sig_cutoff and protected_trie.has_prefix(bits, prefix_len):
-                continue
+    total = int(packed.size)
+    d, s = config.total_max_mismatch, config.seed_max_mismatch
+    cap = config.max_guides or total
+    organisms = index.organisms
 
-            # 2. BK-tree approximate match (per-guide length, robust to mixed lengths)
-            guide_len = len(bits) // 2
-            max_dist = int((1 - sim_thresh) * guide_len)
-            if protected_bktree.search_exists(bits, max_dist):
-                continue
+    rows: List[dict] = []
+    report = on_progress or (_progress if progress else None)
+    for i in range(total):
+        if report and i % 500 == 0:
+            report(i, total, len(rows))
+        g = int(packed[i])
+        if index.query(g, d, s) is not None:
+            continue                       # collides with a commensal -> drop
+        seq = unpack_guide(g, L)
+        rows.append(
+            {
+                "position": int(starts[i]),
+                "strand": "-" if strands[i] else "+",
+                "guide_sequence": seq[::-1] if flip else seq,
+                "gc": round(float(frac[i]), 3),
+            }
+        )
+        if len(rows) >= cap:
+            break
 
-            decoded = decode_bits(bits)
-            unique.append((idx, rev, bits, decoded))
-            if verbose:
-                print(f"\r  found {len(unique):>4}: pos={idx} {'-' if rev else '+'} {decoded}")
-            if len(unique) >= max_guides:
-                break
-    except KeyboardInterrupt:
-        print("\nInterrupted — returning guides found so far.")
-        return unique
-
-    if progress:
-        _print_progress(total, total, len(unique))
-        print()
-    return unique
+    if report:
+        report(total, total, len(rows))
+        if progress and not on_progress:
+            sys.stdout.write("\n")
+    return rows
