@@ -15,7 +15,7 @@ const PRESETS = {
 const PARAM_IDS = ["pam", "side", "guideLength", "seedLen", "seedMm",
                    "totalMm", "minGc", "maxGc", "maxGuides", "email"];
 
-const state = { panel: [], index: null, indexMeta: null,
+const state = { panel: [], index: null, indexMeta: null, indexFailed: [],
                 targets: [], targetGuides: null, results: null, cancel: false, pasteCount: 0 };
 
 // --- parameters ------------------------------------------------------------
@@ -121,6 +121,19 @@ function panelKey(p) {
   const srcs = state.panel.map((s) => s.accession || s.taxid || ("up:" + s.name + ":" + (s.seq ? s.seq.length : 0))).sort();
   return JSON.stringify({ geom, srcs });
 }
+// A missing commensal is a SAFETY problem: its cut-sites go unprotected, so a guide
+// that actually hits it can slip through. Make an incomplete index loud, and remember
+// it (state + cache) so the warning persists across reloads and shows up again at Run.
+function warnIfIncomplete(failed, builtCount) {
+  state.indexFailed = failed || [];
+  if (!state.indexFailed.length) return false;
+  const names = state.indexFailed.map((f) => f.name).join(", ");
+  setStatus("build-status",
+    `⚠ Index INCOMPLETE — ${builtCount} built, ${state.indexFailed.length} failed to download: ${names}. ` +
+    `Guides are NOT screened against the failed genomes, so a kept guide could still cut one of them. ` +
+    `Add an NCBI email (Parameters) and rebuild, or remove/replace those organisms.`, true);
+  return true;
+}
 async function buildOrLoad() {
   if (!state.panel.length) return setStatus("build-status", "Add commensals first.", true);
   const p = params();
@@ -130,7 +143,8 @@ async function buildOrLoad() {
   if (cached) {
     state.index = new GuideIndex(cached.guides, cached.guideLength, cached.seedLen, cached.orgIds, cached.organisms);
     state.indexMeta = cached;
-    setStatus("build-status", `Loaded cached index: ${state.index.length.toLocaleString()} guides from ${cached.organisms.length} organisms.`);
+    if (!warnIfIncomplete(cached.failed, cached.organisms.length))
+      setStatus("build-status", `Loaded cached index: ${state.index.length.toLocaleString()} guides from ${cached.organisms.length} organisms.`);
     return updateRunnable();
   }
   $("build-btn").disabled = true;
@@ -141,13 +155,14 @@ async function buildOrLoad() {
         const src = state.panel.find((s) => s.name === ev.name);
         if (src) { src.status = ev.status; src.guides = ev.guides; }
         renderPanel();
-        setStatus("build-status", `${ev.status} ${ev.name} (${ev.i + 1}/${ev.n})…`);
+        const suffix = ev.status === "retrying" ? ` (retry ${ev.attempt})` : "";
+        setStatus("build-status", `${ev.status} ${ev.name} (${ev.i + 1}/${ev.n})${suffix}…`);
       },
     });
-    state.index = index; state.indexMeta = { organisms: index.organisms };
-    await store.saveIndex(key, { guides: index.guides, orgIds: index.orgIds, guideLength: index.guideLength, seedLen: index.seedLen, organisms: index.organisms }).catch(() => {});
-    const note = failed.length ? ` (${failed.length} failed)` : "";
-    setStatus("build-status", `Index ready: ${index.length.toLocaleString()} guides from ${index.organisms.length} organisms${note}.`);
+    state.index = index; state.indexMeta = { organisms: index.organisms, failed };
+    await store.saveIndex(key, { guides: index.guides, orgIds: index.orgIds, guideLength: index.guideLength, seedLen: index.seedLen, organisms: index.organisms, failed }).catch(() => {});
+    if (!warnIfIncomplete(failed, index.organisms.length))
+      setStatus("build-status", `Index ready: ${index.length.toLocaleString()} guides from ${index.organisms.length} organisms.`);
     track("build", { preset: $("preset").value, pam: p.pam, side: p.side, guideLength: p.guideLength,
       n_organisms: index.organisms.length, guides: index.length, failed: failed.length,
       organisms: index.organisms.map((o) => o.name).join(", ").slice(0, 480) });  // primitive string for Umami
@@ -238,7 +253,7 @@ async function loadPrebuilt(prefix) {
     const buf = await (await fetch("./" + prefix + ".guides.f64")).arrayBuffer();
     const guides = new Float64Array(buf);
     state.index = new GuideIndex(guides, man.guide_length, man.seed_len, null, man.organisms || []);
-    state.indexMeta = man;
+    state.indexMeta = man; state.indexFailed = [];   // prebuilt indexes ship complete
     setStatus("build-status", `Loaded ${guides.length.toLocaleString()} guides from ${(man.organisms || []).length} organisms (prebuilt).`);
     updateRunnable();
   } catch (e) { setStatus("build-status", String(e), true); }
@@ -340,28 +355,31 @@ async function run() {
   setStatus("run-status", cancelled
     ? `Stopped after ${dur} — showing ${rows.length.toLocaleString()} guides from the first ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides screened.`
     : `Done in ${dur} — screened ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides.`);
-  renderResults(rows, { scanned, total, capped, cancelled, maxGuides: p.maxGuides });
+  renderResults(rows, { scanned, total, capped, cancelled, maxGuides: p.maxGuides, indexFailed: state.indexFailed });
   track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
     totalMm: p.totalMm, minGc: p.minGc, maxGc: p.maxGc, maxGuides: p.maxGuides,
     n_targets: tg.organisms.length, target_guides: total, scanned, capped, cancelled, kept: rows.length });
 }
 function renderResults(rows, meta = {}) {
   $("results-wrap").style.display = "block";
-  const { scanned, total, capped, cancelled, maxGuides } = meta;
+  const { scanned, total, capped, cancelled, maxGuides, indexFailed = [] } = meta;
   let summary = `${rows.length.toLocaleString()} commensal-sparing guides`;
   if (total != null) summary += ` · screened ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides`;
   $("results-count").textContent = summary;
-  // explain when the scan didn't cover the whole target guide universe
+  // notes, most-important first: an incomplete panel is a SAFETY caveat on every result
+  const notes = [];
+  if (indexFailed.length) notes.push(
+    `⚠ Screened against an INCOMPLETE panel — ${indexFailed.length} commensal(s) failed to download and were NOT checked` +
+    ` (${indexFailed.map((f) => f.name).join(", ")}). A kept guide could still cut one of them. ` +
+    `Rebuild the index (add an NCBI email in Parameters) for a safe result.`);
+  if (cancelled) notes.push(
+    `Stopped early — the ${rows.length.toLocaleString()} guides above are what was found in the first ${scanned.toLocaleString()} of ${total.toLocaleString()} target guides. Press Run to screen the whole target from the start.`);
+  else if (capped) notes.push(
+    `Stopped at the Max guides cap (${maxGuides.toLocaleString()}) — ${(total - scanned).toLocaleString()} target guides weren't screened. Raise “Max guides”, or narrow to a region (Step 2) to search a different part of the genome.`);
   const note = $("results-note");
-  if (cancelled) {
-    note.textContent = `Stopped early — the ${rows.length.toLocaleString()} guides above are what was found in the first ${scanned.toLocaleString()} of ${total.toLocaleString()} target guides. Press Run to screen the whole target from the start.`;
-    note.style.display = "block";
-  } else if (capped) {
-    note.textContent = `Stopped at the Max guides cap (${maxGuides.toLocaleString()}) — ${(total - scanned).toLocaleString()} target guides weren't screened. Raise “Max guides”, or narrow to a region (Step 2) to search a different part of the genome.`;
-    note.style.display = "block";
-  } else {
-    note.style.display = "none";
-  }
+  note.innerHTML = notes.join("<br><br>");
+  note.style.display = notes.length ? "block" : "none";
+  note.classList.toggle("bad", indexFailed.length > 0);   // red when safety is at stake
   const tb = $("results"); tb.innerHTML = "";
   rows.slice(0, 2000).forEach((r, i) => {
     const tr = document.createElement("tr");

@@ -4,6 +4,24 @@
 
 import { extractGuides, extractTargetGuides, gcFraction, unpackGuide, GuideIndex } from "./engine.mjs";
 
+// Fetch a source's sequence, retrying transient failures with backoff. NCBI throttles
+// hard (especially without an email), so a single attempt drops genomes silently and a
+// missing commensal means its cut-sites go UNPROTECTED. Retrying keeps the index complete.
+async function fetchSeqWithRetry(fetchSeq, src, { attempts = 4, onProgress, i, n } = {}) {
+  let err;
+  for (let a = 0; a < attempts; a++) {
+    try { return await fetchSeq(src); }
+    catch (e) {
+      err = e;
+      if (a < attempts - 1) {
+        onProgress?.({ i, n, name: src.name, status: "retrying", attempt: a + 1, error: String(e) });
+        await new Promise((r) => setTimeout(r, 500 * 2 ** a));   // 0.5s, 1s, 2s
+      }
+    }
+  }
+  throw err;
+}
+
 // params: {guideLength, seedLen, pam, side}
 // sources: [{name, seq?} | {name, accession?} | {name, taxid?}]
 // fetchSeq(src) -> {seq}   (only called when src has no inline seq)
@@ -18,10 +36,10 @@ export async function buildIndex(sources, params, { fetchSeq, onProgress } = {})
     onProgress?.({ i, n: sources.length, name: src.name, status: "fetching" });
     let seq;
     try {
-      seq = src.seq ?? (await fetchSeq(src)).seq;
+      seq = src.seq ?? (await fetchSeqWithRetry(fetchSeq, src, { onProgress, i, n: sources.length })).seq;
       if (!seq || seq.length < params.guideLength) throw new Error("empty/short sequence");
     } catch (e) {
-      failed.push({ ...src, error: String(e) });
+      failed.push({ name: src.name, accession: src.accession, taxid: src.taxid, error: String(e) });
       onProgress?.({ i, n: sources.length, name: src.name, status: "failed", error: String(e) });
       continue;
     }
@@ -60,10 +78,10 @@ export async function collectCommonTargetGuides(sources, params, { fetchSeq, onP
     onProgress?.({ i, n: sources.length, name: src.name, status: "fetching" });
     let seq;
     try {
-      seq = src.seq ?? (await fetchSeq(src)).seq;
+      seq = src.seq ?? (await fetchSeqWithRetry(fetchSeq, src, { onProgress, i, n: sources.length })).seq;
       if (!seq || seq.length < params.guideLength) throw new Error("empty/short sequence");
     } catch (e) {
-      failed.push({ ...src, error: String(e) });
+      failed.push({ name: src.name, accession: src.accession, taxid: src.taxid, error: String(e) });
       onProgress?.({ i, n: sources.length, name: src.name, status: "failed", error: String(e) });
       continue;
     }
