@@ -1,11 +1,20 @@
 # Discriminase
 
-**Commensal-sparing CRISPR guide discovery** — find guide RNAs that hit a target
-bacterium while sparing the surrounding microbiome.
+**Commensal-sparing CRISPR guide design** — find guide RNAs that hit *one* target
+bacterium while sparing every commensal around it.
 
-Give it a target organism and a panel of commensal ("protected") genomes;
-Discriminase returns guides that match the target but stay clear — in a
-CRISPR-relevant, seed-anchored sense — of every genome in the panel.
+🔗 **Live app (no install): https://discriminase-production.up.railway.app** — runs
+entirely in your browser.
+
+Use it to design **narrow-spectrum, sequence-specific** CRISPR tools: kill or edit a
+single pathogen or strain without touching the rest of a microbial community. Give it a
+target organism and a panel of commensal ("protected") genomes, and Discriminase
+returns guides that match the target but stay clear — in a CRISPR-relevant,
+seed-anchored sense — of every genome in the panel.
+
+**Who it's for:** iGEM teams and researchers building CRISPR antimicrobials,
+microbiome-editing tools, strain-selective knockouts, or any guide that must hit one
+organism and spare its neighbours.
 
 ```
 $ discriminase find --target-accession NZ_CP039503.1 \
@@ -22,7 +31,8 @@ $ discriminase find --target-accession NZ_CP039503.1 \
   142 guides -> output/NZ_CP039503_1_guides.csv
 ```
 
-Prefer clicking to typing? `discriminase web` opens a point-and-click UI.
+Prefer clicking to typing? Open the [live app](https://discriminase-production.up.railway.app),
+or run it locally with `discriminase web`.
 
 ## How it works
 
