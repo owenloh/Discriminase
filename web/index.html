@@ -126,7 +126,7 @@
         <div><label>Off-target tolerance (total mismatches)</label><input id="totalMm" type="number" value="4" min="0" /></div>
         <div><label>Min GC</label><input id="minGc" type="number" value="0.40" step="0.05" min="0" max="1" /></div>
         <div><label>Max GC</label><input id="maxGc" type="number" value="0.60" step="0.05" min="0" max="1" /></div>
-        <div><label>Max guides (0 = all)</label><input id="maxGuides" type="number" value="1000" min="0" /></div>
+        <div><label>Max target guides to screen <span class="muted">(0 = all)</span></label><input id="maxGuides" type="number" value="1000" min="0" /><span class="muted" style="font-size:11px">stop after screening this many of the target's guides — keeps big genomes fast. <code>0</code> screens every guide.</span></div>
         <div><label>NCBI email <span class="muted">(optional)</span></label><input id="email" placeholder="optional — higher NCBI rate limits" /></div>
       </div>
     </details>
