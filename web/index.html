@@ -118,9 +118,8 @@
       <div class="grid" style="margin-top:14px">
         <div><label>Nuclease preset</label>
           <select id="preset"><option value="cas12a">Cas12a (5′ TTTV)</option><option value="spcas9">SpCas9 (3′ NGG)</option><option value="custom">Custom</option></select></div>
-        <div><label>PAM (IUPAC ok)</label><input id="pam" value="TTTV" /></div>
-        <div><label>PAM side</label><select id="side"><option value="5prime">5′ (before guide)</option><option value="3prime">3′ (after guide)</option></select></div>
-        <div><label>Gap (PAM↔guide)</label><input id="gap" type="number" value="1" min="0" /></div>
+        <div><label>PAM (IUPAC ok)</label><input id="pam" value="TTTV" /><span class="muted" style="font-size:11px">the fixed motif next to every guide. Need a spacer between PAM and guide? Pad it with N, e.g. <code>TTTN</code>.</span></div>
+        <div><label>PAM position</label><select id="side"><option value="5prime">Before the guide (5′, like Cas12a)</option><option value="3prime">After the guide (3′, like SpCas9)</option></select></div>
         <div><label>Guide length</label><input id="guideLength" type="number" value="23" min="6" max="31" /></div>
         <div><label>Seed length</label><input id="seedLen" type="number" value="10" min="1" /></div>
         <div><label>Seed max mismatches</label><input id="seedMm" type="number" value="1" min="0" /></div>

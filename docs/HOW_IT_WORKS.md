@@ -13,15 +13,18 @@ Throughout the demo: **guide = 4 letters, seed = first 2 letters.**
 On the DNA, every candidate looks like this:
 
 ```
-… TTT · [1 gap] · [ guide, seed first ] …
+… TTT · [ guide, seed first ] …
 ```
 
 | Piece | What it is | Real default | In this demo |
 |---|---|---|---|
 | PAM | a fixed motif the nuclease needs, sitting **5′** (before) the guide | `TTT` (3 letters) | `TTT` |
-| gap | spacer letters between PAM and guide | 1 | 1 |
 | **guide** | the part that matches the DNA you want to cut | **23 letters** (max 31) | **4 letters** |
 | seed | the guide letters nearest the PAM — where CRISPR is most sensitive | first **10** | first **2** |
+
+The guide sits **immediately next to** the PAM. If a nuclease needs slack between
+the two, you express it inside the PAM with `N` (e.g. `TTTN` = `TTT` then any one
+base), so there is no separate "gap" knob.
 
 The PAM is Cas12a-style (5′ `TTT`), **not** SpCas9 (`NGG`, 3′). All of these are
 configurable in `config.py`.
@@ -34,15 +37,13 @@ Slide along one strand, left to right. At each position ask: *"are the next 3 le
 `TTT`?"*
 
 ```
-position:  0   1   2   3   4   5   6   7
-letter:    T   T   T   A   C   A   G   T
-           └── PAM ──┘   │   └──── guide ────┘
-                        gap
+position:  0   1   2   3   4   5   6
+letter:    T   T   T   C   A   G   T
+           └── PAM ──┘   └──── guide ────┘
 ```
 
 - `TTT` is found at positions 0–2 → this is a PAM site.
-- Skip the **1 gap** letter (position 3 = `A`).
-- Take the next **4** letters (positions 4–7) = **`C A G T`** → one guide.
+- Take the next **4** letters (positions 3–6) = **`C A G T`** → one guide.
 - Its **seed** = first 2 letters = **`C A`**.
 
 Do this at every position, then again on the **reverse-complement strand** (to catch

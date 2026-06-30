@@ -163,8 +163,9 @@ The whole app is static files in `web/`. To put it online for others:
 ## Honest notes
 
 - **Nuclease / PAM.** Default is a Cas12a/Cpf1-style 5′ `TTT` PAM (in `config.py`),
-  matched exactly. *Not* SpCas9 (3′ `NGG`). Change `pam` / `pam_to_guide_gap` for
-  another system.
+  matched exactly. *Not* SpCas9 (3′ `NGG`). Change `pam` / `pam_side` for another
+  system; the guide sits right next to the PAM, so any spacing goes inside the PAM
+  as `N` (e.g. `TTTN`).
 - **Engineering, not a new algorithm.** Packed k-mers + a sorted index is a clean,
   fast take on a well-studied problem. The less-crowded angle is the *application*:
   multi-genome, commensal-sparing design.

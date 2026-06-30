@@ -110,25 +110,26 @@ def _pack_windows(codes: np.ndarray, starts: np.ndarray, L: int, reverse: bool) 
     return (windows << shifts).sum(axis=1).astype(np.uint64)
 
 
-def _strand_guides(codes, valid, L, pam_sets, gap, side):
+def _strand_guides(codes, valid, L, pam_sets, side):
     """(window_starts, packed_guides) for one already-oriented strand.
 
     5' PAM (Cas12a): guide is *after* the PAM; PAM-proximal end leads naturally.
     3' PAM (SpCas9): guide is *before* the PAM; reverse so PAM-proximal end leads.
-    Windows containing any ambiguous/invalid base are dropped.
+    The protospacer is adjacent to the PAM; any "gap" is expressed by padding the
+    PAM with N (e.g. ``TTTN``). Windows containing an ambiguous/invalid base are dropped.
     """
     n, pamlen = codes.shape[0], len(pam_sets)
     if side not in ("5prime", "3prime"):
         raise ValueError(f"pam_side must be '5prime' or '3prime', got {side!r}")
     pos = _pam_positions(codes, pam_sets)
-    starts = (pos + pamlen + gap) if side == "5prime" else (pos - gap - L)
+    starts = (pos + pamlen) if side == "5prime" else (pos - L)
     starts = starts[(starts >= 0) & (starts + L <= n)]
     starts = _filter_valid_windows(starts, valid, L)
     return starts, _pack_windows(codes, starts, L, reverse=(side == "3prime"))
 
 
 def extract_packed_guides(
-    seq: str, guide_length: int, pam: str = "TTT", gap: int = 1, side: str = "5prime"
+    seq: str, guide_length: int, pam: str = "TTT", side: str = "5prime"
 ) -> np.ndarray:
     """Every PAM-anchored guide in ``seq`` (both strands), packed to ``uint64``.
 
@@ -137,13 +138,13 @@ def extract_packed_guides(
     codes = encode(seq)
     valid = valid_mask(seq)
     pam_sets = _pam_sets(pam)
-    _, fwd = _strand_guides(codes, valid, guide_length, pam_sets, gap, side)
-    _, rev = _strand_guides(reverse_complement(codes), valid[::-1], guide_length, pam_sets, gap, side)
+    _, fwd = _strand_guides(codes, valid, guide_length, pam_sets, side)
+    _, rev = _strand_guides(reverse_complement(codes), valid[::-1], guide_length, pam_sets, side)
     return np.concatenate([fwd, rev])
 
 
 def extract_target_guides(
-    seq: str, guide_length: int, pam: str = "TTT", gap: int = 1, side: str = "5prime"
+    seq: str, guide_length: int, pam: str = "TTT", side: str = "5prime"
 ):
     """Guides in ``seq`` with provenance: ``(packed, forward_start, strand)``.
 
@@ -155,8 +156,8 @@ def extract_target_guides(
     valid = valid_mask(seq)
     pam_sets = _pam_sets(pam)
 
-    f_starts, f_packed = _strand_guides(codes, valid, guide_length, pam_sets, gap, side)
-    r_starts, r_packed = _strand_guides(reverse_complement(codes), valid[::-1], guide_length, pam_sets, gap, side)
+    f_starts, f_packed = _strand_guides(codes, valid, guide_length, pam_sets, side)
+    r_starts, r_packed = _strand_guides(reverse_complement(codes), valid[::-1], guide_length, pam_sets, side)
     r_fwd = n - r_starts - guide_length        # rc window coord -> forward coord
 
     packed = np.concatenate([f_packed, r_packed])
