@@ -5,6 +5,7 @@ import { GuideIndex } from "./engine.mjs";
 import { buildIndex, findSparingGuides } from "./build.mjs";
 import * as ncbi from "./ncbi.mjs";
 import * as store from "./store.mjs";
+import { initAnalytics, track, targetSummary } from "./analytics.mjs";
 
 const $ = (id) => document.getElementById(id);
 const PRESETS = {
@@ -115,6 +116,8 @@ async function buildOrLoad() {
     await store.saveIndex(key, { guides: index.guides, orgIds: index.orgIds, guideLength: index.guideLength, seedLen: index.seedLen, organisms: index.organisms }).catch(() => {});
     const note = failed.length ? ` (${failed.length} failed)` : "";
     setStatus("build-status", `Index ready: ${index.length.toLocaleString()} guides from ${index.organisms.length} organisms${note}.`);
+    track("build", { preset: $("preset").value, pam: p.pam, side: p.side, guideLength: p.guideLength,
+      organisms: index.organisms.map((o) => o.name), n: index.organisms.length, guides: index.length, failed: failed.length });
   } catch (e) {
     setStatus("build-status", String(e), true);
   } finally { $("build-btn").disabled = false; updateRunnable(); }
@@ -158,9 +161,10 @@ async function loadPrebuilt(prefix) {
 }
 
 // --- target ----------------------------------------------------------------
-function setTarget(seq, label) {
-  state.target = { seq, label };
+function setTarget(seq, label, info = { type: "unknown" }) {
+  state.target = { seq, label, info };
   $("t-status").innerHTML = `Target: <b>${label}</b> (${seq.length.toLocaleString()} bp)`;
+  track("target", targetSummary(info, seq));
   updateRunnable();
 }
 
@@ -179,6 +183,9 @@ function run() {
   state.results = rows;
   $("run-progress").style.display = "none";
   renderResults(rows);
+  track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
+    totalMm: p.totalMm, minGc: p.minGc, maxGc: p.maxGc, maxGuides: p.maxGuides,
+    target: targetSummary(state.target.info, state.target.seq), kept: rows.length });
 }
 function renderResults(rows) {
   $("results-wrap").style.display = "block";
@@ -213,7 +220,7 @@ function init() {
   restoreParams();
   // restore last panel (metadata only)
   (store.loadSetting("panel", []) || []).forEach((s) => state.panel.push(s));
-  renderPanel(); refreshSavedPanels(); loadPrebuiltList();
+  renderPanel(); refreshSavedPanels(); loadPrebuiltList(); initAnalytics();
 
   // onboarding guide: show until dismissed, reopen via the header button
   const guide = $("guide");
@@ -238,11 +245,11 @@ function init() {
     renderPanel(); savePanelState();
   };
 
-  $("t-search").onclick = () => $("t-name").value.trim() && searchInto($("t-name").value.trim(), $("t-results"),
-    async (c) => { setStatus("t-status", `Fetching ${c.accession}…`); try { const { seq } = await ncbi.fetchSequence(c.accession, { email: params().email }); setTarget(seq, c.accession); } catch (err) { setStatus("t-status", String(err), true); } });
-  $("t-use-acc").onclick = async () => { const a = $("t-acc").value.trim(); if (!a) return; setStatus("t-status", `Fetching ${a}…`); try { const { seq } = await ncbi.fetchSequence(a, { email: params().email }); setTarget(seq, a); } catch (e) { setStatus("t-status", String(e), true); } };
-  $("t-file").onchange = async (e) => { const f = e.target.files[0]; if (f) setTarget(await readFasta(f), f.name); };
-  $("t-use-paste").onclick = () => { const s = $("t-paste").value.replace(/\s/g, ""); if (s) setTarget(s, "pasted_sequence"); };
+  $("t-search").onclick = () => { const q = $("t-name").value.trim(); if (!q) return; track("search_target", { query: q }); searchInto(q, $("t-results"),
+    async (c) => { setStatus("t-status", `Fetching ${c.accession}…`); try { const { seq } = await ncbi.fetchSequence(c.accession, { email: params().email }); setTarget(seq, c.accession, { type: "name", value: c.accession, name: q }); } catch (err) { setStatus("t-status", String(err), true); } }); };
+  $("t-use-acc").onclick = async () => { const a = $("t-acc").value.trim(); if (!a) return; setStatus("t-status", `Fetching ${a}…`); try { const { seq } = await ncbi.fetchSequence(a, { email: params().email }); setTarget(seq, a, { type: "accession", value: a }); } catch (e) { setStatus("t-status", String(e), true); } };
+  $("t-file").onchange = async (e) => { const f = e.target.files[0]; if (f) setTarget(await readFasta(f), f.name, { type: "upload", name: f.name }); };
+  $("t-use-paste").onclick = () => { const s = $("t-paste").value.replace(/\s/g, ""); if (s) setTarget(s, "pasted_sequence", { type: "paste" }); };
 
   $("run-btn").onclick = run;
   $("dl-btn").onclick = downloadCSV;
