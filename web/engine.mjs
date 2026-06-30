@@ -100,30 +100,47 @@ function packWindow(codes, start, L, reverse) {
   else for (let j = L - 1; j >= 0; j--) v = v * 4 + codes[start + j];
   return v;
 }
-function strandGuides(codes, L, sets, gap, side) {
+// A/C/G/T validity: anything else (N, IUPAC ambiguity, gaps) is not a definite base.
+const IS_ACGT = new Uint8Array(256);
+for (const c of [65, 67, 71, 84, 97, 99, 103, 116]) IS_ACGT[c] = 1; // ACGT acgt
+function invArray(seq) {
+  const n = seq.length, a = new Uint8Array(n);
+  for (let i = 0; i < n; i++) a[i] = IS_ACGT[seq.charCodeAt(i) & 0xff] ? 0 : 1;
+  return a;
+}
+function prefixSum(inv) {
+  const cum = new Int32Array(inv.length + 1);
+  for (let i = 0; i < inv.length; i++) cum[i + 1] = cum[i] + inv[i];
+  return cum;
+}
+
+function strandGuides(codes, cumInv, L, sets, gap, side) {
   const n = codes.length, pamlen = sets.length, starts = [], packed = [];
   for (const p of pamPositions(codes, sets)) {
     let start, reverse;
     if (side === "5prime") { start = p + pamlen + gap; reverse = false; }
     else if (side === "3prime") { start = p - gap - L; reverse = true; }
     else throw new Error(`pam_side must be 5prime/3prime`);
-    if (start >= 0 && start + L <= n) { starts.push(start); packed.push(packWindow(codes, start, L, reverse)); }
+    // skip windows that run off the end or contain any ambiguous/invalid base
+    if (start >= 0 && start + L <= n && cumInv[start + L] - cumInv[start] === 0) {
+      starts.push(start); packed.push(packWindow(codes, start, L, reverse));
+    }
   }
   return { starts, packed };
 }
 
 export function extractGuides(seq, L, pam = "TTT", gap = 1, side = "5prime") {
-  const codes = encode(seq), sets = pamSets(pam);
-  const f = strandGuides(codes, L, sets, gap, side);
-  const r = strandGuides(reverseComplement(codes), L, sets, gap, side);
+  const codes = encode(seq), sets = pamSets(pam), inv = invArray(seq);
+  const f = strandGuides(codes, prefixSum(inv), L, sets, gap, side);
+  const r = strandGuides(reverseComplement(codes), prefixSum(inv.slice().reverse()), L, sets, gap, side);
   return f.packed.concat(r.packed);
 }
 
 // Target extraction keeps provenance (forward position + strand) for the output.
 export function extractTargetGuides(seq, L, pam = "TTT", gap = 1, side = "5prime") {
-  const codes = encode(seq), n = codes.length, sets = pamSets(pam);
-  const f = strandGuides(codes, L, sets, gap, side);
-  const r = strandGuides(reverseComplement(codes), L, sets, gap, side);
+  const codes = encode(seq), n = codes.length, sets = pamSets(pam), inv = invArray(seq);
+  const f = strandGuides(codes, prefixSum(inv), L, sets, gap, side);
+  const r = strandGuides(reverseComplement(codes), prefixSum(inv.slice().reverse()), L, sets, gap, side);
   const packed = f.packed.concat(r.packed);
   const starts = f.starts.concat(r.starts.map((s) => n - s - L));   // rc -> forward coord
   const strands = f.starts.map(() => 0).concat(r.starts.map(() => 1));
