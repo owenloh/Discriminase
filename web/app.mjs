@@ -124,7 +124,8 @@ async function buildOrLoad() {
     const note = failed.length ? ` (${failed.length} failed)` : "";
     setStatus("build-status", `Index ready: ${index.length.toLocaleString()} guides from ${index.organisms.length} organisms${note}.`);
     track("build", { preset: $("preset").value, pam: p.pam, side: p.side, guideLength: p.guideLength,
-      organisms: index.organisms.map((o) => o.name), n: index.organisms.length, guides: index.length, failed: failed.length });
+      n_organisms: index.organisms.length, guides: index.length, failed: failed.length,
+      organisms: index.organisms.map((o) => o.name).join(", ").slice(0, 480) });  // primitive string for Umami
   } catch (e) {
     setStatus("build-status", String(e), true);
   } finally { $("build-btn").disabled = false; updateRunnable(); }
@@ -245,7 +246,7 @@ function run() {
   renderResults(rows);
   track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
     totalMm: p.totalMm, minGc: p.minGc, maxGc: p.maxGc, maxGuides: p.maxGuides,
-    target: targetSummary(state.target.info, state.target.seq), kept: rows.length });
+    ...targetSummary(state.target.info, state.target.seq), kept: rows.length });
 }
 function renderResults(rows) {
   $("results-wrap").style.display = "block";

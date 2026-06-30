@@ -25,12 +25,13 @@ export function track(event, data = {}) {
   catch (e) { /* never let analytics break the app */ }
 }
 
-// Summarize a chosen target for logging without ever including a big sequence.
+// Flat, primitive-only target fields (Umami stores primitives cleanly; nested
+// objects/arrays do not). Never includes a big sequence -- uploads log filename+length.
 export function targetSummary(info, seq) {
-  const base = { type: info.type, length: seq ? seq.length : undefined };
-  if (info.type === "accession") base.accession = info.value;
-  else if (info.type === "name") { base.accession = info.value; base.name = info.name; }
-  else if (info.type === "upload") base.file = info.name;       // filename only, not contents
-  else if (info.type === "paste") { if (seq && seq.length <= MAX_SEQ) base.seq = seq; }
-  return base;
+  const f = { target_type: info.type, target_len: seq ? seq.length : undefined };
+  if (info.type === "accession") f.target = info.value;
+  else if (info.type === "name") { f.target = info.value; f.target_name = info.name; }
+  else if (info.type === "upload") f.target_file = info.name;     // filename only, not contents
+  else if (info.type === "paste" && seq && seq.length <= MAX_SEQ) f.target_seq = seq;
+  return f;
 }
