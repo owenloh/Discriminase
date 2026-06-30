@@ -130,30 +130,81 @@ async function buildOrLoad() {
   } finally { $("build-btn").disabled = false; updateRunnable(); }
 }
 
-// --- saved panels ----------------------------------------------------------
+// --- panel sources: examples, prebuilt indexes, saved panels, uploaded CSV --
+// Examples + Saved + CSV give you a LIST of organisms that you still Build.
+// Prebuilt is already Built (an index) and loads instantly.
+function _fillOptgroup(id, items, mkValue, mkLabel) {
+  const og = $(id); og.innerHTML = "";
+  items.forEach((it) => { const o = document.createElement("option"); o.value = mkValue(it); o.textContent = mkLabel(it); og.appendChild(o); });
+  og.hidden = items.length === 0;          // hide empty groups so the menu stays clean
+}
+async function loadExampleList() {
+  try { _fillOptgroup("og-example", await (await fetch("./examples/index.json")).json(),
+    (p) => "example:" + p.file, (p) => p.name); } catch (e) { $("og-example").hidden = true; }
+}
+async function loadPrebuiltList() {
+  try { _fillOptgroup("og-prebuilt", await (await fetch("./panels/index.json")).json(),
+    (p) => "prebuilt:" + p.prefix, (p) => p.name + " (instant)"); } catch (e) { $("og-prebuilt").hidden = true; }
+}
 function refreshSavedPanels() {
-  const names = store.loadSetting("panelNames", []);
-  const sel = $("saved-panels");
-  sel.innerHTML = `<option value="">— saved panels —</option>` + names.map((n) => `<option>${n}</option>`).join("");
+  _fillOptgroup("og-saved", store.loadSetting("panelNames", []) || [], (n) => "saved:" + n, (n) => n);
 }
 function saveNamedPanel() {
-  const name = prompt("Save this panel as:");
+  if (!state.panel.length) return setStatus("build-status", "Add commensals before saving.", true);
+  const name = prompt("Save this panel in your browser as:");
   if (!name) return;
   const names = store.loadSetting("panelNames", []);
   if (!names.includes(name)) names.push(name);
   store.saveSetting("panelNames", names);
   store.saveSetting("panel:" + name, state.panel.filter((s) => !s.uploaded).map((s) => ({ name: s.name, accession: s.accession, taxid: s.taxid })));
   refreshSavedPanels();
+  setStatus("build-status", `Saved “${name}” in this browser.`);
 }
 
-// --- prebuilt panels (static files shipped with the site) ------------------
-async function loadPrebuiltList() {
-  try {
-    const list = await (await fetch("./panels/index.json")).json();
-    const sel = $("prebuilt");
-    list.forEach((p) => { const o = document.createElement("option"); o.value = p.prefix; o.textContent = p.name; sel.appendChild(o); });
-  } catch (e) { /* no prebuilt panels shipped — fine */ }
+function loadPanelSources(sources, label) {
+  if (!sources.length) return setStatus("build-status", "That panel had no usable organisms.", true);
+  state.panel = sources; renderPanel(); savePanelState();
+  setStatus("build-status", `Loaded ${sources.length} organisms${label ? " from " + label : ""}. Now press “Build / load index”.`);
 }
+async function loadExamplePanel(file) {
+  setStatus("build-status", "Loading example panel…");
+  try { loadPanelSources(parsePanelCsv(await (await fetch("./examples/" + file)).text()), file); }
+  catch (e) { setStatus("build-status", String(e), true); }
+}
+function loadSavedPanel(name) {
+  loadPanelSources((store.loadSetting("panel:" + name, []) || []).map((s) => ({ ...s })), name);
+}
+
+// CSV parser for uploaded / example panels (columns: taxid / accession / organism_strain)
+function _csvLine(line) {
+  const out = []; let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true; else if (c === ",") { out.push(cur); cur = ""; } else cur += c;
+  }
+  out.push(cur); return out;
+}
+function parsePanelCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return [];
+  const header = _csvLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const find = (names) => { for (const n of names) { const i = header.indexOf(n); if (i >= 0) return i; } return -1; };
+  let iTax = find(["taxid", "tax_id", "txid"]), iAcc = find(["accession", "acc"]),
+      iName = find(["organism_strain", "organism", "name", "strain"]), start = 1;
+  if (iTax < 0 && iAcc < 0 && iName < 0) { iTax = 0; iName = 1; start = 0; }   // headerless: taxid,name
+  const out = [];
+  for (let r = start; r < lines.length; r++) {
+    const f = _csvLine(lines[r]);
+    const taxid = iTax >= 0 ? (f[iTax] || "").trim() : "";
+    const accession = iAcc >= 0 ? (f[iAcc] || "").trim() : "";
+    const name = (iName >= 0 ? (f[iName] || "").trim() : "") || accession || (taxid ? "txid" + taxid : "");
+    if (!taxid && !accession) continue;          // need something fetchable from NCBI
+    out.push({ name, taxid: taxid || undefined, accession: accession || undefined });
+  }
+  return out;
+}
+
 async function loadPrebuilt(prefix) {
   setStatus("build-status", "Loading prebuilt index…");
   try {
@@ -240,7 +291,7 @@ function init() {
   restoreParams();
   // restore last panel (metadata only)
   (store.loadSetting("panel", []) || []).forEach((s) => state.panel.push(s));
-  renderPanel(); refreshSavedPanels(); loadPrebuiltList(); initAnalytics();
+  renderPanel(); refreshSavedPanels(); loadPrebuiltList(); loadExampleList(); initAnalytics();
 
   // onboarding guide: a right-side drawer. Opens on first visit, reopen via header.
   const guide = $("guide"), overlay = $("guide-overlay");
@@ -251,7 +302,14 @@ function init() {
   $("guide-close").onclick = dismiss;
   overlay.onclick = dismiss;
 
-  $("prebuilt").onchange = (e) => { if (e.target.value) loadPrebuilt(e.target.value); };
+  $("load-panel").onchange = (e) => {
+    const v = e.target.value; e.target.value = "";
+    if (!v) return;
+    const i = v.indexOf(":"), type = v.slice(0, i), id = v.slice(i + 1);
+    if (type === "example") loadExamplePanel(id);
+    else if (type === "prebuilt") loadPrebuilt(id);
+    else if (type === "saved") loadSavedPanel(id);
+  };
   $("preset").onchange = applyPreset;
   PARAM_IDS.forEach((id) => $(id).addEventListener("change", persistParams));
 
@@ -262,10 +320,9 @@ function init() {
   $("cp-file").onchange = async (e) => { for (const f of e.target.files) addSource({ name: f.name, seq: await readFasta(f), uploaded: true }); e.target.value = ""; };
   $("build-btn").onclick = buildOrLoad;
   $("cp-save").onclick = saveNamedPanel;
-  $("saved-panels").onchange = (e) => {
-    if (!e.target.value) return;
-    state.panel = (store.loadSetting("panel:" + e.target.value, []) || []).map((s) => ({ ...s }));
-    renderPanel(); savePanelState();
+  $("panel-csv").onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    loadPanelSources(parsePanelCsv(await f.text()), f.name); e.target.value = "";
   };
 
   $("t-search").onclick = () => { const q = $("t-name").value.trim(); if (!q) return; track("search_target", { query: q }); searchInto(q, $("t-results"),

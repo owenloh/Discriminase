@@ -38,6 +38,7 @@
   .hint { margin:0 0 14px; color:var(--mut); font-size:13px; }
   .cols { display:grid; grid-template-columns:0.92fr 1.08fr; gap:20px; }
   .col h3 { margin:0 0 9px; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--mut); }
+  .sub { font-size:12px; color:var(--accent); font-weight:700; margin:2px 0; }
   .col-left { border-right:1px solid var(--line); padding-right:20px; }
   @media (max-width:760px){ .cols{ grid-template-columns:1fr; } .col-left{ border-right:none; padding-right:0; border-bottom:1px solid var(--line); padding-bottom:16px; } }
   .row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
@@ -90,10 +91,21 @@
   <h2>How to use</h2>
   <ol>
     <li><b>Set your nuclease</b> (Parameters). Cas12a or SpCas9, or a custom PAM — this decides which sites a guide can target.</li>
-    <li><b>Build a panel of commensals to spare</b> (Step 1, right side). Search NCBI and pick, add an accession/taxid, upload FASTA, or load a prebuilt panel. Your panel builds up on the left. Press <b>Build / load index</b>.</li>
-    <li><b>Choose your target</b> (Step 2, right side). Search a name and pick the exact strain, or paste/upload a sequence. Your choice shows on the left.</li>
+    <li><b>Build a panel of commensals to spare</b> (Step 1). Add organisms on the right; your panel builds up on the left. Then press <b>Build / load index</b>.</li>
+    <li><b>Choose your target</b> (Step 2). Search a name and pick the exact strain, or paste/upload a sequence. Your choice shows on the left.</li>
     <li><b>Press Run</b> (Step 3). You get guides that hit the target but avoid every commensal — download as CSV.</li>
   </ol>
+
+  <h2 style="font-size:15px; margin-top:18px">Ways to fill the panel</h2>
+  <ul style="padding-left:18px; margin:6px 0">
+    <li><b>Load a panel → Examples</b> — ready-made lists we ship (e.g. <i>Gut microbiome, 52 species</i>). Loads the organisms; you press Build. The genomes download in your browser the first time, then they're cached.</li>
+    <li><b>Load a panel → Prebuilt</b> — a panel we already indexed for you: it's <b>ready instantly</b>, no Build step. (Appears here only when we've shipped one.)</li>
+    <li><b>Load a panel → Saved</b> — panels <b>you</b> saved in <i>this</i> browser with “Save panel to browser”, so you can reuse them. Loads the list; you press Build.</li>
+    <li><b>Upload panel CSV</b> — your own list, as a CSV with a <code>taxid</code> (or <code>accession</code>) column. Loads the list; you press Build.</li>
+    <li><b>One by one</b> — search NCBI, or add a single accession / taxid, or upload FASTA genome files.</li>
+  </ul>
+  <div class="tip"><b>Saved vs Prebuilt, in one line:</b> <b>Saved</b> = a list <i>you</i> kept and still need to Build. <b>Prebuilt</b> = already Built by us, instant.</div>
+
   <div class="tip">💡 <b>Off-target tolerance</b> = how many mismatches still count as “would also cut a commensal.” Lower = stricter and safer. Nothing leaves your computer except genome downloads from NCBI.</div>
 </aside>
 
@@ -138,6 +150,18 @@
       </div>
       <div class="col col-right stack">
         <h3>Add commensals</h3>
+        <div class="sub">Start from a whole panel</div>
+        <div class="row">
+          <div style="flex:2"><label>Load a panel</label>
+            <select id="load-panel">
+              <option value="">— choose a panel —</option>
+              <optgroup label="Examples — build in your browser" id="og-example"></optgroup>
+              <optgroup label="Prebuilt — ready instantly" id="og-prebuilt"></optgroup>
+              <optgroup label="Saved in this browser" id="og-saved"></optgroup>
+            </select></div>
+          <div style="flex:1"><label>Upload panel CSV</label><input id="panel-csv" type="file" accept=".csv" /></div>
+        </div>
+        <div class="sub" style="margin-top:8px">…or add organisms one by one</div>
         <div class="row">
           <div style="flex:2"><label>Search NCBI by name</label><input id="cp-name" placeholder="e.g. Escherichia coli K-12" /></div>
           <button id="cp-search">Search</button>
@@ -149,11 +173,7 @@
           <div style="flex:1"><label>Taxid</label><input id="cp-tax" placeholder="511145" /></div>
           <button id="cp-add-tax" class="ghost">Add</button>
         </div>
-        <div><label>Upload FASTA (one or more)</label><input id="cp-file" type="file" accept=".fa,.fasta,.fna,.txt" multiple /></div>
-        <div class="row">
-          <div style="flex:1"><label>Prebuilt panel</label><select id="prebuilt"><option value="">— choose —</option></select></div>
-          <div style="flex:1"><label>Saved panels</label><select id="saved-panels"><option value="">— choose —</option></select></div>
-        </div>
+        <div><label>Upload FASTA (one or more genomes)</label><input id="cp-file" type="file" accept=".fa,.fasta,.fna,.txt" multiple /></div>
       </div>
     </div>
   </div>
