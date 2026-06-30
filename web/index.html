@@ -91,9 +91,9 @@
   <h2>How to use</h2>
   <ol>
     <li><b>Set your nuclease</b> (Parameters). Cas12a or SpCas9, or a custom PAM — this decides which sites a guide can target.</li>
-    <li><b>Build a panel of commensals to spare</b> (Step 1). Add organisms on the right; your panel builds up on the left. Then press <b>Build / load index</b>.</li>
-    <li><b>Choose your target</b> (Step 2). Search a name and pick the exact strain, or paste/upload a sequence. Your choice shows on the left.</li>
-    <li><b>Press Run</b> (Step 3). You get guides that hit the target but avoid every commensal — download as CSV.</li>
+    <li><b>Build a panel of commensals to spare</b> (Step 1). Add organisms on the right; your panel builds up on the left. Then press <b>Build commensal index</b>.</li>
+    <li><b>Add your target(s) to hit</b> (Step 2). Search a name, add by accession/taxid, or paste/upload a sequence — add as many as you like. Press <b>Find common target guides</b>; with several targets you get only the guides that hit every one.</li>
+    <li><b>Press Run</b> (Step 3). You get guides that hit the target(s) but avoid every commensal — download as CSV.</li>
   </ol>
 
   <h2 style="font-size:15px; margin-top:18px">Ways to fill the panel</h2>
@@ -140,12 +140,12 @@
       <div class="col col-left">
         <h3>Your panel</h3>
         <div class="scroll"><table><thead><tr><th>Organism</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody id="panel-list"></tbody></table></div>
+        <button id="build-btn" style="width:100%; margin-top:12px">⚙ Build commensal index</button>
+        <p id="build-status" class="muted" style="margin:8px 0 0"></p>
         <div class="row" style="margin-top:10px">
-          <button id="build-btn">Build / load index</button>
           <button id="cp-download" class="ghost">⬇ Download panel as CSV</button>
           <button id="cp-save" class="ghost">💾 Save panel to browser</button>
         </div>
-        <p id="build-status" class="muted" style="margin:8px 0 0"></p>
       </div>
       <div class="col col-right stack">
         <h3>Add commensals</h3>
@@ -179,34 +179,39 @@
 
   <!-- Step 2 -->
   <div class="card">
-    <h2><span class="badge">2</span> Target to hit</h2>
-    <p class="hint">The bacterium you want to cut. Choose on the right; your target shows on the left.</p>
+    <h2><span class="badge">2</span> Targets to hit</h2>
+    <p class="hint">The bacteria you want to cut. Add one or more on the right; with several targets we keep only the guides that hit <b>every</b> one (exact match), then screen those against your panel.</p>
     <div class="cols">
       <div class="col col-left">
-        <h3>Your target</h3>
-        <div id="t-status" class="selbox">No target chosen yet.</div>
+        <h3>Your targets</h3>
+        <div class="scroll"><table><thead><tr><th>Organism</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody id="target-list"></tbody></table></div>
+        <button id="target-btn" style="width:100%; margin-top:12px">🎯 Find common target guides</button>
+        <p id="target-status" class="muted" style="margin:8px 0 0"></p>
       </div>
       <div class="col col-right stack">
-        <h3>Choose target</h3>
+        <h3>Add targets</h3>
+        <div class="sub">…add organisms one by one</div>
         <div class="row">
-          <div style="flex:2"><label>Search by name</label><input id="t-name" placeholder="e.g. Salmonella enterica" /></div>
+          <div style="flex:2"><label>Search NCBI by name</label><input id="t-name" placeholder="e.g. Salmonella enterica" /></div>
           <button id="t-search">Search</button>
         </div>
         <div id="t-results" class="scroll" style="display:none"></div>
         <div class="row">
-          <div style="flex:1"><label>By accession</label><input id="t-acc" placeholder="NZ_CP039503.1" /></div>
-          <button id="t-use-acc" class="ghost">Use</button>
-          <div style="flex:1"><label>Upload FASTA</label><input id="t-file" type="file" accept=".fa,.fasta,.fna,.txt" /></div>
+          <div style="flex:1"><label>Accession</label><input id="t-acc" placeholder="NZ_CP039503.1" /></div>
+          <button id="t-add-acc" class="ghost">Add</button>
+          <div style="flex:1"><label>Taxid</label><input id="t-tax" placeholder="28901" /></div>
+          <button id="t-add-tax" class="ghost">Add</button>
         </div>
-        <div><label>…or paste a DNA sequence</label><textarea id="t-paste" rows="2" placeholder="ACGT…"></textarea>
-          <button id="t-use-paste" class="ghost" style="margin-top:6px">Use pasted</button></div>
-        <div class="sub" style="margin-top:8px">Target a region (optional)</div>
+        <div><label>Upload FASTA (one or more genomes)</label><input id="t-file" type="file" accept=".fa,.fasta,.fna,.txt" multiple /></div>
+        <div class="sub" style="margin-top:8px">…or paste a DNA sequence</div>
+        <div><textarea id="t-paste" rows="2" placeholder="ACGT…"></textarea>
+          <button id="t-add-paste" class="ghost" style="margin-top:6px">Add pasted sequence</button></div>
+        <div class="sub" style="margin-top:8px">Target a region (optional — single target only)</div>
         <div class="row">
           <div style="flex:1"><label>Start (bp)</label><input id="region-start" type="number" min="0" placeholder="0" /></div>
           <div style="flex:1"><label>End (bp)</label><input id="region-end" type="number" min="0" placeholder="whole genome" /></div>
         </div>
-        <p class="muted" style="margin:2px 0 0">Only search guides between these positions — e.g. inside one gene. Leave blank for the whole genome. <b>Tip:</b> to target a specific gene precisely, paste/upload just that gene's sequence above instead.</p>
-        <p id="t-guide-est" class="ok" style="margin:8px 0 0; font-size:13px"></p>
+        <p class="muted" style="margin:2px 0 0">With one target, search only guides between these positions — e.g. inside one gene. Ignored when you have several targets (their coordinates differ). <b>Tip:</b> to target a specific gene precisely, paste/upload just that gene's sequence above.</p>
       </div>
     </div>
   </div>
