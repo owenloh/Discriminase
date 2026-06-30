@@ -233,9 +233,18 @@ function setTarget(seq, label, info = { type: "unknown" }) {
 function updateRunnable() { $("run-btn").disabled = !(state.index && state.target); }
 function run() {
   const p = params();
+  // optional region: restrict to bases [start, end) of the target
+  let seq = state.target.seq, offset = 0;
+  const rs = parseInt($("region-start").value, 10), re = parseInt($("region-end").value, 10);
+  const start = Number.isFinite(rs) ? Math.max(0, rs) : 0;
+  const end = Number.isFinite(re) ? Math.min(seq.length, re) : seq.length;
+  if (start > 0 || end < seq.length) {
+    if (end <= start) return setStatus("run-status", "Region end must be greater than start.", true);
+    seq = seq.slice(start, end); offset = start;
+  }
   $("run-progress").style.display = "block";
-  const rows = findSparingGuides(state.target.seq, state.index, p, {
-    maxGuides: p.maxGuides,
+  const rows = findSparingGuides(seq, state.index, p, {
+    maxGuides: p.maxGuides, positionOffset: offset,
     onProgress: (done, total, kept) => {
       $("run-progress").max = total; $("run-progress").value = done;
       setStatus("run-status", `screening ${done.toLocaleString()}/${total.toLocaleString()} — ${kept} kept`);
@@ -246,6 +255,7 @@ function run() {
   renderResults(rows);
   track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
     totalMm: p.totalMm, minGc: p.minGc, maxGc: p.maxGc, maxGuides: p.maxGuides,
+    region_start: offset || undefined, region_len: seq.length,
     ...targetSummary(state.target.info, state.target.seq), kept: rows.length });
 }
 function renderResults(rows) {

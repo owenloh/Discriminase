@@ -43,7 +43,7 @@ export async function buildIndex(sources, params, { fetchSeq, onProgress } = {})
 }
 
 // Screen a target sequence against an index -> array of result rows.
-export function findSparingGuides(targetSeq, index, params, { onProgress, maxGuides = 1000 } = {}) {
+export function findSparingGuides(targetSeq, index, params, { onProgress, maxGuides = 1000, positionOffset = 0 } = {}) {
   const { packed, starts, strands } = extractTargetGuides(
     targetSeq, params.guideLength, params.pam, params.gap, params.side);
   const flip = params.side === "3prime";
@@ -58,7 +58,7 @@ export function findSparingGuides(targetSeq, index, params, { onProgress, maxGui
     if (index.query(g, d, s) !== null) continue;
     let seq = unpackGuide(g, params.guideLength);
     if (flip) seq = [...seq].reverse().join("");
-    rows.push({ position: starts[i], strand: strands[i] ? "-" : "+", guide_sequence: seq, gc: Math.round(frac * 1000) / 1000 });
+    rows.push({ position: starts[i] + positionOffset, strand: strands[i] ? "-" : "+", guide_sequence: seq, gc: Math.round(frac * 1000) / 1000 });
     if (rows.length >= cap) break;
   }
   onProgress?.(packed.length, packed.length, rows.length);

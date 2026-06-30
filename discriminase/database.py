@@ -20,7 +20,7 @@ import numpy as np
 from .config import GuideFinderConfig
 from .genome import extract_packed_guides
 from .index import GuideIndex
-from .loaders import read_sequence_file, read_taxid_csv
+from .loaders import read_sequence_file, read_panel_csv
 
 # A source describes one commensal: {"name", and one of "fasta"/"taxid"/"accession"}.
 Source = dict
@@ -139,7 +139,7 @@ def make_ncbi_get_sequence(config: GuideFinderConfig) -> GetSequence:
 def build_from_panel_csv(csv_path: str, config: GuideFinderConfig,
                          progress: Callable[[str], None] = print) -> GuideIndex:
     """Build from a panel CSV (headers: taxid, organism_strain) via NCBI."""
-    organisms = read_taxid_csv(csv_path)
-    sources = [{"name": name, "taxid": taxid} for name, taxid in organisms]
+    rows = read_panel_csv(csv_path)
+    sources = [{"name": n, "taxid": t or None, "accession": a or None} for n, t, a in rows]
     progress(f"Loaded {len(sources)} commensals from {csv_path}")
     return build_index(sources, config, make_ncbi_get_sequence(config), progress)

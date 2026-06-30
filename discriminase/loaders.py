@@ -4,25 +4,28 @@ import os
 from typing import List, Tuple
 
 
-def read_taxid_csv(file_path: str) -> List[Tuple[str, str]]:
-    """Read a panel CSV with headers `taxid` and `organism_strain`.
+def read_panel_csv(file_path: str) -> List[Tuple[str, str, str]]:
+    """Read a panel CSV. Needs `organism_strain` and at least one of `taxid`/`accession`.
 
-    Returns [(organism_strain, taxid), ...].
+    Accession is the more reliable key (it pins one exact complete genome); taxid works
+    too. Returns [(organism_strain, taxid, accession), ...] (missing fields as "").
     """
-    organisms: List[Tuple[str, str]] = []
+    rows: List[Tuple[str, str, str]] = []
     with open(file_path, 'r', encoding='utf-8', newline='') as fh:
         reader = csv.DictReader(fh)
-        required = {'taxid', 'organism_strain'}
-        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+        fields = set(reader.fieldnames or [])
+        if 'organism_strain' not in fields or not (fields & {'taxid', 'accession'}):
             raise ValueError(
-                f"CSV must have headers {sorted(required)}; found {reader.fieldnames}"
+                "CSV must have 'organism_strain' and at least one of 'taxid'/'accession'; "
+                f"found {reader.fieldnames}"
             )
         for row in reader:
+            name = (row.get('organism_strain') or '').strip()
             taxid = (row.get('taxid') or '').strip()
-            strain = (row.get('organism_strain') or '').strip()
-            if taxid and strain:
-                organisms.append((strain, taxid))
-    return organisms
+            accession = (row.get('accession') or '').strip()
+            if name and (taxid or accession):
+                rows.append((name, taxid, accession))
+    return rows
 
 
 def read_sequence_file(file_path: str) -> str:

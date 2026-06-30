@@ -1,53 +1,48 @@
-taxid,organism_strain
-511145,Escherichia coli MG1655
-165179,Segatella copri
-457424,Bacteroides fragilis 3_1_12
-226186,Bacteroides thetaiotaomicron VPI-5482
-1125631,Phocaeicola vulgatus 274-1D4
-665954,Bacteroides ovatus 3_8_47FAA
-411479,Bacteroides uniformis ATCC 8492
-445970,Alistipes putredinis DSM 17216
-435591,Parabacteroides distasonis ATCC 8503
-411477,Parabacteroides merdae ATCC 43184
-411901,Bacteroides caccae ATCC 43185
-748224,Faecalibacterium cf. prausnitzii KLE1255
-515619,Agathobacter rectalis ATCC 33656
-585394,Roseburia hominis A2-183
-1263104,Roseburia intestinalis CAG:13
-657321,Ruminococcus bromii L2-63
-411459,Blautia obeum ATCC 29174
-1357389,Clostridium leptum A16_3
-634501,Clostridium butyricum 2CR37
-1280691,Blautia wexlerae AGR2146
-411490,Anaerostipes caccae L1-92
-1280698,Dorea longicatena AGR2136
-470146,Coprococcus comes ATCC 27758
-515620,Lachnospira eligens ATCC 27750
-1263062,Eshraghiella crossota CAG:259
-411471,Subdoligranulum variabile DSM 15176
-367928,Bifidobacterium adolescentis ATCC 15703
-1000567,Bifidobacterium longum 3_1_37DFAAB
-1385938,Bifidobacterium breve 12L
-500634,Bifidobacterium bifidum ATCC 29521
-518635,Bifidobacterium angulatum DSM 20098
-316435,Escherichia coli Nissle 1917
-411464,Desulfovibrio piger ATCC 29098
-563192,Bilophila wadsworthia 3_1_6
-349741,Akkermansia muciniphila ATCC BAA-835
-1357398,Fusobacterium nucleatum 13_3C
-1381116,Lacticaseibacillus rhamnosus 2166
-1051650,Lacticaseibacillus casei 12A
-1327988,Lactiplantibacillus plantarum 16
-525341,Limosilactobacillus reuteri CF48-3A
-891391,Lactobacillus acidophilus 30SC
-1403312,Lactobacillus gasseri 130918
-1408188,Lactococcus lactis RTB018
-1435981,Streptococcus thermophilus 1F8CT
-411903,Collinsella aerofaciens ATCC 25986
-742768,Eggerthella lenta 1_1_60AFAA
-420247,Methanobrevibacter smithii ATCC 35061
-545696,Holdemania filiformis DSM 12042
-1263090,Odoribacter splanchnicus CAG:14
-702450,Turicibacter sanguinis PC909
-224308,Bacillus subtilis subsp. subtilis str. 168
-668369,Escherichia coli DH5alpha
+organism_strain,accession
+Bacteroides fragilis,NZ_CP098482.1
+Bacteroides thetaiotaomicron,NZ_CP072224.1
+Bacteroides ovatus,NZ_CP041395.1
+Bacteroides uniformis,NZ_CP072220.1
+Bacteroides caccae,NZ_CP072258.1
+Phocaeicola vulgatus,NZ_CP072234.1
+Phocaeicola dorei,NZ_CP072246.1
+Parabacteroides distasonis,NZ_CP120353.1
+Parabacteroides merdae,NZ_CP072229.1
+Segatella copri,NZ_CP146523.1
+Alistipes putredinis,NZ_CP176634.1
+Alistipes shahii,NZ_CP102253.1
+Odoribacter splanchnicus,CP002544.1
+Faecalibacterium prausnitzii,NZ_CP170812.1
+Roseburia intestinalis,NZ_CP102289.1
+Roseburia hominis,NZ_CP117966.1
+Agathobacter rectalis,NZ_CP143947.1
+Blautia obeum,NZ_CP145091.1
+Blautia wexlerae,NZ_CP102267.1
+Anaerostipes caccae,NZ_CP102254.1
+Dorea longicatena,NZ_CP094679.1
+Coprococcus comes,NZ_CP070062.1
+Lachnospira eligens,NZ_CP085938.1
+Subdoligranulum variabile,NZ_CP102293.1
+Clostridium butyricum,NZ_CP188232.1
+Anaerobutyricum hallii,NZ_CP143936.1
+Christensenella minuta,NZ_CP029256.1
+Veillonella parvula,NZ_CP138632.1
+Lactiplantibacillus plantarum,NZ_CP063986.1
+Lacticaseibacillus rhamnosus,NZ_CP186560.1
+Limosilactobacillus reuteri,NZ_CP169042.1
+Lactobacillus gasseri,NZ_CP072657.1
+Streptococcus thermophilus,NZ_CP065485.1
+Enterococcus faecalis,NZ_AP027297.1
+Bifidobacterium adolescentis,NZ_CP187538.1
+Bifidobacterium longum,NZ_CP054521.1
+Bifidobacterium breve,NZ_CP118083.1
+Bifidobacterium bifidum,NZ_CP169560.1
+Bifidobacterium pseudocatenulatum,NZ_CP090598.1
+Collinsella aerofaciens,NZ_CP048433.1
+Eggerthella lenta,NZ_CP129147.1
+Escherichia coli,NZ_CP178659.1
+Desulfovibrio piger,NZ_CP189842.1
+Bilophila wadsworthia,NZ_CP166084.1
+Akkermansia muciniphila,NZ_CP072030.1
+Methanobrevibacter smithii,NZ_CP117965.1
+Fusobacterium nucleatum,NZ_CP084111.1

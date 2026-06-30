@@ -201,6 +201,12 @@
         </div>
         <div><label>…or paste a DNA sequence</label><textarea id="t-paste" rows="2" placeholder="ACGT…"></textarea>
           <button id="t-use-paste" class="ghost" style="margin-top:6px">Use pasted</button></div>
+        <div class="sub" style="margin-top:8px">Target a region (optional)</div>
+        <div class="row">
+          <div style="flex:1"><label>Start (bp)</label><input id="region-start" type="number" min="0" placeholder="0" /></div>
+          <div style="flex:1"><label>End (bp)</label><input id="region-end" type="number" min="0" placeholder="whole genome" /></div>
+        </div>
+        <p class="muted" style="margin:2px 0 0">Only search guides between these positions — e.g. inside one gene. Leave blank for the whole genome. <b>Tip:</b> to target a specific gene precisely, paste/upload just that gene's sequence above instead.</p>
       </div>
     </div>
   </div>

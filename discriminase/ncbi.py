@@ -97,7 +97,7 @@ def search_target_candidates(query: str, retmax: int = 25, refseq_only: bool = T
                 "title": str(s.get("Title", "")),
                 "organism": str(s.get("Organism", "")) or _organism_from_title(str(s.get("Title", ""))),
                 "length_bp": int(s.get("Length") or s.get("Slen") or 0),
-                "taxid": str(s.get("TaxId", "")),
+                "taxid": str(int(s.get("TaxId") or 0)),   # TaxId is an Entrez IntegerElement
             }
         )
     out.sort(key=lambda r: r["length_bp"], reverse=True)
