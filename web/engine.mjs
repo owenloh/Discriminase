@@ -114,12 +114,12 @@ function prefixSum(inv) {
   return cum;
 }
 
-function strandGuides(codes, cumInv, L, sets, gap, side) {
+function strandGuides(codes, cumInv, L, sets, side) {
   const n = codes.length, pamlen = sets.length, starts = [], packed = [];
   for (const p of pamPositions(codes, sets)) {
     let start, reverse;
-    if (side === "5prime") { start = p + pamlen + gap; reverse = false; }
-    else if (side === "3prime") { start = p - gap - L; reverse = true; }
+    if (side === "5prime") { start = p + pamlen; reverse = false; }
+    else if (side === "3prime") { start = p - L; reverse = true; }
     else throw new Error(`pam_side must be 5prime/3prime`);
     // skip windows that run off the end or contain any ambiguous/invalid base
     if (start >= 0 && start + L <= n && cumInv[start + L] - cumInv[start] === 0) {
@@ -129,18 +129,18 @@ function strandGuides(codes, cumInv, L, sets, gap, side) {
   return { starts, packed };
 }
 
-export function extractGuides(seq, L, pam = "TTT", gap = 1, side = "5prime") {
+export function extractGuides(seq, L, pam = "TTT", side = "5prime") {
   const codes = encode(seq), sets = pamSets(pam), inv = invArray(seq);
-  const f = strandGuides(codes, prefixSum(inv), L, sets, gap, side);
-  const r = strandGuides(reverseComplement(codes), prefixSum(inv.slice().reverse()), L, sets, gap, side);
+  const f = strandGuides(codes, prefixSum(inv), L, sets, side);
+  const r = strandGuides(reverseComplement(codes), prefixSum(inv.slice().reverse()), L, sets, side);
   return f.packed.concat(r.packed);
 }
 
 // Target extraction keeps provenance (forward position + strand) for the output.
-export function extractTargetGuides(seq, L, pam = "TTT", gap = 1, side = "5prime") {
+export function extractTargetGuides(seq, L, pam = "TTT", side = "5prime") {
   const codes = encode(seq), n = codes.length, sets = pamSets(pam), inv = invArray(seq);
-  const f = strandGuides(codes, prefixSum(inv), L, sets, gap, side);
-  const r = strandGuides(reverseComplement(codes), prefixSum(inv.slice().reverse()), L, sets, gap, side);
+  const f = strandGuides(codes, prefixSum(inv), L, sets, side);
+  const r = strandGuides(reverseComplement(codes), prefixSum(inv.slice().reverse()), L, sets, side);
   const packed = f.packed.concat(r.packed);
   const starts = f.starts.concat(r.starts.map((s) => n - s - L));   // rc -> forward coord
   const strands = f.starts.map(() => 0).concat(r.starts.map(() => 1));

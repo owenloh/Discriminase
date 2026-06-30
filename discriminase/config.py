@@ -17,11 +17,11 @@ def _default_workers() -> int:
 
 
 # Convenience starting points; users can still override any field. A preset only
-# sets the nuclease geometry (PAM, side, gap, typical guide/seed lengths).
+# sets the nuclease geometry (PAM, side, typical guide/seed lengths).
 NUCLEASE_PRESETS = {
-    "cas12a": {"pam": "TTTV", "pam_side": "5prime", "pam_to_guide_gap": 1,
+    "cas12a": {"pam": "TTTV", "pam_side": "5prime",
                "guide_length": 23, "seed_len": 10},
-    "spcas9": {"pam": "NGG", "pam_side": "3prime", "pam_to_guide_gap": 0,
+    "spcas9": {"pam": "NGG", "pam_side": "3prime",
                "guide_length": 20, "seed_len": 10},
 }
 
@@ -33,10 +33,11 @@ class GuideFinderConfig(BaseModel):
     # --- PAM / nuclease -----------------------------------------------------
     # PAM accepts IUPAC codes (N, R, Y, V, ...). `pam_side` is "5prime" (Cas12a:
     # PAM before the spacer) or "3prime" (SpCas9 NGG: PAM after the spacer); the
-    # seed is always the PAM-proximal end, whichever side that is. See NUCLEASE_PRESETS.
+    # seed is always the PAM-proximal end, whichever side that is. The protospacer
+    # is adjacent to the PAM -- to leave room between them, pad the PAM with N
+    # (e.g. "TTTN"). See NUCLEASE_PRESETS.
     pam: str = "TTT"
     pam_side: str = "5prime"
-    pam_to_guide_gap: int = 1        # bases between PAM and spacer
 
     # --- distance model (seed-anchored; see docs/ARCHITECTURE.md) ------------
     # A target guide collides with a commensal cut-site when their PAM-proximal

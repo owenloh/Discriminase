@@ -34,7 +34,7 @@ def find_sparing_guides(
     """Return commensal-sparing guides for ``target_seq`` as a list of row dicts."""
     L = config.guide_length
     packed, starts, strands = extract_target_guides(
-        target_seq, L, config.pam, config.pam_to_guide_gap, config.pam_side
+        target_seq, L, config.pam, config.pam_side
     )
     flip = config.pam_side == "3prime"   # stored PAM-proximal-first -> show 5'->3'
 

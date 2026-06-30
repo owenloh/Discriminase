@@ -16,8 +16,8 @@ UNIQUE = "TGCATGCATGCATGCATGCATGC"
 PAD = "GA" * 12                       # no "TTT", so it spawns no forward PAM sites
 
 
-def _cassette(spacer):                # 5' TTT PAM, 1-base gap, then the spacer
-    return "TTT" + "A" + spacer
+def _cassette(spacer):                # 5' TTT PAM, then the adjacent spacer
+    return "TTT" + spacer
 
 
 def _cfg(tmp_path):

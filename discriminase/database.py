@@ -51,8 +51,7 @@ def build_index(
                 continue
 
             packed = extract_packed_guides(
-                seq, config.guide_length, config.pam,
-                config.pam_to_guide_gap, config.pam_side,
+                seq, config.guide_length, config.pam, config.pam_side,
             )
             org_index = len(organisms)
             organisms.append(
@@ -89,7 +88,6 @@ def build_index(
     meta = {
         "pam": config.pam,
         "pam_side": config.pam_side,
-        "pam_to_guide_gap": config.pam_to_guide_gap,
         "seed_max_mismatch": config.seed_max_mismatch,
         "total_max_mismatch": config.total_max_mismatch,
         "created_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),

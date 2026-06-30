@@ -4,7 +4,7 @@
 
 import { extractGuides, extractTargetGuides, gcFraction, unpackGuide, GuideIndex } from "./engine.mjs";
 
-// params: {guideLength, seedLen, pam, gap, side}
+// params: {guideLength, seedLen, pam, side}
 // sources: [{name, seq?} | {name, accession?} | {name, taxid?}]
 // fetchSeq(src) -> {seq}   (only called when src has no inline seq)
 export async function buildIndex(sources, params, { fetchSeq, onProgress } = {}) {
@@ -25,7 +25,7 @@ export async function buildIndex(sources, params, { fetchSeq, onProgress } = {})
       onProgress?.({ i, n: sources.length, name: src.name, status: "failed", error: String(e) });
       continue;
     }
-    const g = extractGuides(seq, params.guideLength, params.pam, params.gap, params.side);
+    const g = extractGuides(seq, params.guideLength, params.pam, params.side);
     const orgIndex = organisms.length;
     organisms.push({
       name: src.name, accession: src.accession || null, taxid: src.taxid || null,
@@ -43,15 +43,26 @@ export async function buildIndex(sources, params, { fetchSeq, onProgress } = {})
 }
 
 // Screen a target sequence against an index -> array of result rows.
-export function findSparingGuides(targetSeq, index, params, { onProgress, maxGuides = 1000, positionOffset = 0 } = {}) {
+// Async + time-sliced: every ~`tickMs` of work it reports progress and yields to
+// the event loop so the browser can repaint the progress bar / ETA. Without the
+// yield the whole loop runs in one synchronous task and the bar only "appears"
+// once everything is already done.
+export async function findSparingGuides(targetSeq, index, params,
+  { onProgress, maxGuides = 1000, positionOffset = 0, tickMs = 80 } = {}) {
   const { packed, starts, strands } = extractTargetGuides(
-    targetSeq, params.guideLength, params.pam, params.gap, params.side);
+    targetSeq, params.guideLength, params.pam, params.side);
   const flip = params.side === "3prime";
   const d = params.totalMm, s = params.seedMm;
   const cap = maxGuides || packed.length;
   const rows = [];
+  const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+  let lastTick = now();
   for (let i = 0; i < packed.length; i++) {
-    if (onProgress && i % 2000 === 0) onProgress(i, packed.length, rows.length);
+    if (onProgress && now() - lastTick >= tickMs) {
+      onProgress(i, packed.length, rows.length);
+      await new Promise((r) => setTimeout(r, 0));   // let the browser paint
+      lastTick = now();
+    }
     const g = packed[i];
     const frac = gcFraction(g, params.guideLength);
     if (frac < params.minGc || frac > params.maxGc) continue;

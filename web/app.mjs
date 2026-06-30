@@ -9,10 +9,10 @@ import { initAnalytics, track, targetSummary } from "./analytics.mjs";
 
 const $ = (id) => document.getElementById(id);
 const PRESETS = {
-  cas12a: { pam: "TTTV", side: "5prime", gap: 1, guideLength: 23, seedLen: 10 },
-  spcas9: { pam: "NGG", side: "3prime", gap: 0, guideLength: 20, seedLen: 10 },
+  cas12a: { pam: "TTTV", side: "5prime", guideLength: 23, seedLen: 10 },
+  spcas9: { pam: "NGG", side: "3prime", guideLength: 20, seedLen: 10 },
 };
-const PARAM_IDS = ["pam", "side", "gap", "guideLength", "seedLen", "seedMm",
+const PARAM_IDS = ["pam", "side", "guideLength", "seedLen", "seedMm",
                    "totalMm", "minGc", "maxGc", "maxGuides", "email"];
 
 const state = { panel: [], index: null, indexMeta: null, target: null, results: null };
@@ -21,7 +21,7 @@ const state = { panel: [], index: null, indexMeta: null, target: null, results: 
 function params() {
   return {
     pam: $("pam").value.trim().toUpperCase(), side: $("side").value,
-    gap: +$("gap").value, guideLength: +$("guideLength").value, seedLen: +$("seedLen").value,
+    guideLength: +$("guideLength").value, seedLen: +$("seedLen").value,
     seedMm: +$("seedMm").value, totalMm: +$("totalMm").value,
     minGc: +$("minGc").value, maxGc: +$("maxGc").value, maxGuides: +$("maxGuides").value,
     email: $("email").value.trim(),
@@ -92,7 +92,7 @@ async function readFasta(file) {
 
 // --- build / load index ----------------------------------------------------
 function panelKey(p) {
-  const geom = { L: p.guideLength, pam: p.pam, side: p.side, gap: p.gap, seed: p.seedLen };
+  const geom = { L: p.guideLength, pam: p.pam, side: p.side, seed: p.seedLen };
   const srcs = state.panel.map((s) => s.accession || s.taxid || ("up:" + s.name + ":" + (s.seq ? s.seq.length : 0))).sort();
   return JSON.stringify({ geom, srcs });
 }
@@ -231,7 +231,17 @@ function setTarget(seq, label, info = { type: "unknown" }) {
 
 // --- run -------------------------------------------------------------------
 function updateRunnable() { $("run-btn").disabled = !(state.index && state.target); }
-function run() {
+const _now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+function fmtDuration(s) {                      // 7s · 1m 03s · 1h 04m
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), r = s % 60;
+  if (m < 60) return `${m}m ${String(r).padStart(2, "0")}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+async function run() {
+  const btn = $("run-btn");
+  if (btn.disabled) return;
   const p = params();
   // optional region: restrict to bases [start, end) of the target
   let seq = state.target.seq, offset = 0;
@@ -242,16 +252,35 @@ function run() {
     if (end <= start) return setStatus("run-status", "Region end must be greater than start.", true);
     seq = seq.slice(start, end); offset = start;
   }
-  $("run-progress").style.display = "block";
-  const rows = findSparingGuides(seq, state.index, p, {
-    maxGuides: p.maxGuides, positionOffset: offset,
-    onProgress: (done, total, kept) => {
-      $("run-progress").max = total; $("run-progress").value = done;
-      setStatus("run-status", `screening ${done.toLocaleString()}/${total.toLocaleString()} — ${kept} kept`);
-    },
-  });
+  btn.disabled = true;
+  const bar = $("run-progress");
+  bar.style.display = "block"; bar.value = 0; bar.max = 1;
+  const t0 = _now();
+  let rows;
+  try {
+    rows = await findSparingGuides(seq, state.index, p, {
+      maxGuides: p.maxGuides, positionOffset: offset,
+      onProgress: (done, total, kept) => {
+        bar.max = total || 1; bar.value = done;
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        // ETA extrapolated from the pace so far (early ticks set it from the first guides)
+        let eta = "";
+        if (done > 0 && done < total) {
+          const remaining = ((_now() - t0) / 1000) * (total - done) / done;
+          eta = ` · ~${fmtDuration(remaining)} left`;
+        }
+        setStatus("run-status",
+          `Screening guide ${done.toLocaleString()} / ${total.toLocaleString()} (${pct}%) — ${kept.toLocaleString()} kept${eta}`);
+      },
+    });
+  } catch (e) {
+    bar.style.display = "none"; btn.disabled = false;
+    return setStatus("run-status", String(e), true);
+  }
+  bar.style.display = "none"; btn.disabled = false;
   state.results = rows;
-  $("run-progress").style.display = "none";
+  setStatus("run-status",
+    `Done in ${fmtDuration((_now() - t0) / 1000)} — ${rows.length.toLocaleString()} commensal-sparing guides.`);
   renderResults(rows);
   track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
     totalMm: p.totalMm, minGc: p.minGc, maxGc: p.maxGc, maxGuides: p.maxGuides,
@@ -294,7 +323,7 @@ function setStatus(id, msg, bad) { const e = $(id); e.textContent = msg; e.class
 function applyPreset() {
   const p = PRESETS[$("preset").value];
   if (!p) return;
-  $("pam").value = p.pam; $("side").value = p.side; $("gap").value = p.gap;
+  $("pam").value = p.pam; $("side").value = p.side;
   $("guideLength").value = p.guideLength; $("seedLen").value = p.seedLen; persistParams();
 }
 

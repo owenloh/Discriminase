@@ -12,14 +12,14 @@ _IUPAC = {"A": "A", "C": "C", "G": "G", "T": "T", "R": "AG", "Y": "CT", "S": "CG
           "V": "ACG", "N": "ACGT"}
 
 
-def _slow(seq, L, pam, gap, side):
+def _slow(seq, L, pam, side):
     """Reference extraction in 5'->3' guide order, both strands."""
     out = []
 
     def scan(s):
         for i in range(len(s) - len(pam) + 1):
             if all(s[i + j] in _IUPAC[pam[j]] for j in range(len(pam))):
-                st = (i + len(pam) + gap) if side == "5prime" else (i - gap - L)
+                st = (i + len(pam)) if side == "5prime" else (i - L)  # protospacer adjacent to PAM
                 if 0 <= st and st + L <= len(s):
                     out.append(s[st:st + L])
 
@@ -37,13 +37,13 @@ def _to_packed(guide_5to3, side):
 def test_iupac_both_sides_match_reference():
     rng = np.random.default_rng(11)
     seq = "".join(rng.choice(list("ACGT"), 400))
-    for pam, side, gap in [("TTT", "5prime", 1), ("NGG", "3prime", 0),
-                           ("TNG", "5prime", 2), ("RYN", "3prime", 1),
-                           ("TTTV", "5prime", 1)]:
+    for pam, side in [("TTT", "5prime"), ("NGG", "3prime"),
+                      ("TNG", "5prime"), ("RYN", "3prime"),
+                      ("TTTV", "5prime"), ("TTTN", "5prime")]:
         L = 6
-        want = sorted(_to_packed(g, side) for g in _slow(seq, L, pam, gap, side))
-        got = sorted(int(x) for x in extract_packed_guides(seq, L, pam, gap, side))
-        assert got == want, f"mismatch for pam={pam} side={side} gap={gap}"
+        want = sorted(_to_packed(g, side) for g in _slow(seq, L, pam, side))
+        got = sorted(int(x) for x in extract_packed_guides(seq, L, pam, side))
+        assert got == want, f"mismatch for pam={pam} side={side}"
 
 
 def test_presets_apply():
@@ -64,7 +64,7 @@ def test_spcas9_end_to_end(tmp_path):
     cfg.email = ""
     cfg.max_guides = 0
 
-    def cassette(spacer):              # 5'-[spacer][NGG]-3'  (gap 0, PAM on 3')
+    def cassette(spacer):              # 5'-[spacer][NGG]-3'  (PAM adjacent, on 3')
         return spacer + "AGG"
 
     commensal = PAD + cassette(SHARED) + PAD
