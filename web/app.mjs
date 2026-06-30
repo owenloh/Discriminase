@@ -2,7 +2,7 @@
 // verified engine (engine.mjs / build.mjs / ncbi.mjs) and persistence (store.mjs).
 
 import { GuideIndex } from "./engine.mjs";
-import { buildIndex, findSparingGuides } from "./build.mjs";
+import { buildIndex, findSparingGuides, countTargetGuides } from "./build.mjs";
 import * as ncbi from "./ncbi.mjs";
 import * as store from "./store.mjs";
 import { initAnalytics, track, targetSummary } from "./analytics.mjs";
@@ -15,7 +15,7 @@ const PRESETS = {
 const PARAM_IDS = ["pam", "side", "guideLength", "seedLen", "seedMm",
                    "totalMm", "minGc", "maxGc", "maxGuides", "email"];
 
-const state = { panel: [], index: null, indexMeta: null, target: null, results: null };
+const state = { panel: [], index: null, indexMeta: null, target: null, results: null, cancel: false };
 
 // --- parameters ------------------------------------------------------------
 function params() {
@@ -226,7 +226,33 @@ function setTarget(seq, label, info = { type: "unknown" }) {
   box.classList.add("has");
   box.innerHTML = `✓ Target: <b>${label}</b><br><span class="muted">${seq.length.toLocaleString()} bp · ${info.type}</span>`;
   track("target", targetSummary(info, seq));
+  refreshGuideEstimate();
   updateRunnable();
+}
+
+// The [start, end) slice the region inputs select within a sequence of length n.
+function regionBounds(n) {
+  const rs = parseInt($("region-start").value, 10), re = parseInt($("region-end").value, 10);
+  return { start: Number.isFinite(rs) ? Math.max(0, rs) : 0,
+           end: Number.isFinite(re) ? Math.min(n, re) : n };
+}
+
+// Preview the search universe in Step 2: how many PAM-anchored target guides exist
+// for the current geometry + region, and whether Max guides would cap the run.
+function refreshGuideEstimate() {
+  const el = $("t-guide-est");
+  if (!state.target) { el.textContent = ""; return; }
+  const p = params();
+  const { start, end } = regionBounds(state.target.seq.length);
+  if (end <= start) { el.textContent = "Region end must be greater than start."; return; }
+  const sub = (start > 0 || end < state.target.seq.length) ? state.target.seq.slice(start, end) : state.target.seq;
+  let n;
+  try { n = countTargetGuides(sub, p); } catch { el.textContent = ""; return; }
+  const where = sub !== state.target.seq ? ` in bp ${start.toLocaleString()}–${end.toLocaleString()}` : "";
+  const capped = p.maxGuides && n > p.maxGuides
+    ? ` — Run will screen only the first ${p.maxGuides.toLocaleString()} (Max guides); raise it or pick a region to cover the rest`
+    : "";
+  el.textContent = `${n.toLocaleString()} potential ${p.pam} target guides${where}${capped}`;
 }
 
 // --- run -------------------------------------------------------------------
@@ -245,21 +271,23 @@ async function run() {
   const p = params();
   // optional region: restrict to bases [start, end) of the target
   let seq = state.target.seq, offset = 0;
-  const rs = parseInt($("region-start").value, 10), re = parseInt($("region-end").value, 10);
-  const start = Number.isFinite(rs) ? Math.max(0, rs) : 0;
-  const end = Number.isFinite(re) ? Math.min(seq.length, re) : seq.length;
+  const { start, end } = regionBounds(seq.length);
   if (start > 0 || end < seq.length) {
     if (end <= start) return setStatus("run-status", "Region end must be greater than start.", true);
     seq = seq.slice(start, end); offset = start;
   }
   btn.disabled = true;
+  const cancelBtn = $("cancel-btn");
+  state.cancel = false;
+  cancelBtn.style.display = ""; cancelBtn.disabled = false;
   const bar = $("run-progress");
   bar.style.display = "block"; bar.value = 0; bar.max = 1;
   const t0 = _now();
-  let rows;
+  let result;
   try {
-    rows = await findSparingGuides(seq, state.index, p, {
+    result = await findSparingGuides(seq, state.index, p, {
       maxGuides: p.maxGuides, positionOffset: offset,
+      shouldStop: () => state.cancel,
       onProgress: (done, total, kept) => {
         bar.max = total || 1; bar.value = done;
         const pct = total ? Math.round((done / total) * 100) : 0;
@@ -270,26 +298,45 @@ async function run() {
           eta = ` · ~${fmtDuration(remaining)} left`;
         }
         setStatus("run-status",
-          `Screening guide ${done.toLocaleString()} / ${total.toLocaleString()} (${pct}%) — ${kept.toLocaleString()} kept${eta}`);
+          `Screening target guide ${done.toLocaleString()} / ${total.toLocaleString()} (${pct}%) — ${kept.toLocaleString()} kept${eta}`);
       },
     });
   } catch (e) {
-    bar.style.display = "none"; btn.disabled = false;
+    bar.style.display = "none"; btn.disabled = false; cancelBtn.style.display = "none";
     return setStatus("run-status", String(e), true);
   }
-  bar.style.display = "none"; btn.disabled = false;
+  const { rows, scanned, total, cancelled } = result;
+  bar.style.display = "none"; btn.disabled = false; cancelBtn.style.display = "none";
   state.results = rows;
-  setStatus("run-status",
-    `Done in ${fmtDuration((_now() - t0) / 1000)} — ${rows.length.toLocaleString()} commensal-sparing guides.`);
-  renderResults(rows);
+  const capped = !cancelled && scanned < total;
+  const dur = fmtDuration((_now() - t0) / 1000);
+  setStatus("run-status", cancelled
+    ? `Cancelled after ${dur} — screened ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides (partial).`
+    : `Done in ${dur} — screened ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides.`);
+  renderResults(rows, { scanned, total, capped, cancelled, maxGuides: p.maxGuides });
   track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
     totalMm: p.totalMm, minGc: p.minGc, maxGc: p.maxGc, maxGuides: p.maxGuides,
     region_start: offset || undefined, region_len: seq.length,
-    ...targetSummary(state.target.info, state.target.seq), kept: rows.length });
+    ...targetSummary(state.target.info, state.target.seq), kept: rows.length,
+    target_guides: total, scanned, capped, cancelled });
 }
-function renderResults(rows) {
+function renderResults(rows, meta = {}) {
   $("results-wrap").style.display = "block";
-  $("results-count").textContent = `${rows.length} commensal-sparing guides`;
+  const { scanned, total, capped, cancelled, maxGuides } = meta;
+  let summary = `${rows.length.toLocaleString()} commensal-sparing guides`;
+  if (total != null) summary += ` · screened ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides`;
+  $("results-count").textContent = summary;
+  // explain when the scan didn't cover the whole target guide universe
+  const note = $("results-note");
+  if (cancelled) {
+    note.textContent = `Run cancelled — ${(total - scanned).toLocaleString()} of ${total.toLocaleString()} target guides weren't screened. These results are partial; press Run to start over.`;
+    note.style.display = "block";
+  } else if (capped) {
+    note.textContent = `Stopped at the Max guides cap (${maxGuides.toLocaleString()}) — ${(total - scanned).toLocaleString()} target guides weren't screened. Raise “Max guides”, or narrow to a region (Step 2) to search a different part of the genome.`;
+    note.style.display = "block";
+  } else {
+    note.style.display = "none";
+  }
   const tb = $("results"); tb.innerHTML = "";
   rows.slice(0, 2000).forEach((r, i) => {
     const tr = document.createElement("tr");
@@ -327,6 +374,7 @@ function applyPreset() {
   if (!p) return;                          // "custom" pins nothing
   $("pam").value = p.pam; $("side").value = p.side;
   $("guideLength").value = p.guideLength; $("seedLen").value = p.seedLen; persistParams();
+  refreshGuideEstimate();
 }
 // Reflect the live params back onto the dropdown: a known nuclease if they match
 // one exactly, otherwise "custom". Keeps the label honest after manual edits.
@@ -364,6 +412,9 @@ function init() {
   PARAM_IDS.forEach((id) => $(id).addEventListener("change", persistParams));
   // flip the preset label to "custom" (or a matching nuclease) on manual edits
   PRESET_GEOM.forEach((id) => $(id).addEventListener("input", syncPresetFromParams));
+  // recompute the Step 2 guide-count preview on geometry / region / cap edits (on blur)
+  [...PRESET_GEOM, "region-start", "region-end", "maxGuides"].forEach((id) =>
+    $(id).addEventListener("change", refreshGuideEstimate));
   syncPresetFromParams();                  // and reflect restored params on load
 
   $("cp-search").onclick = () => $("cp-name").value.trim() && searchInto($("cp-name").value.trim(), $("cp-results"),
@@ -385,6 +436,7 @@ function init() {
   $("t-use-paste").onclick = () => { const s = $("t-paste").value.replace(/\s/g, ""); if (s) setTarget(s, "pasted_sequence", { type: "paste" }); };
 
   $("run-btn").onclick = run;
+  $("cancel-btn").onclick = () => { state.cancel = true; $("cancel-btn").disabled = true; setStatus("run-status", "Cancelling…"); };
   $("dl-btn").onclick = downloadCSV;
   $("cp-download").onclick = downloadPanel;
   updateRunnable();
