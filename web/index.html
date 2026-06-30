@@ -206,6 +206,7 @@
           <div style="flex:1"><label>End (bp)</label><input id="region-end" type="number" min="0" placeholder="whole genome" /></div>
         </div>
         <p class="muted" style="margin:2px 0 0">Only search guides between these positions — e.g. inside one gene. Leave blank for the whole genome. <b>Tip:</b> to target a specific gene precisely, paste/upload just that gene's sequence above instead.</p>
+        <p id="t-guide-est" class="ok" style="margin:8px 0 0; font-size:13px"></p>
       </div>
     </div>
   </div>
@@ -214,10 +215,11 @@
   <div class="card">
     <h2><span class="badge">3</span> Find commensal-sparing guides</h2>
     <p class="hint">Screens every target guide against the panel and keeps the ones that hit nothing in it.</p>
-    <div class="row"><button id="run-btn" disabled>▶ Run</button><span id="run-status" class="muted"></span></div>
+    <div class="row"><button id="run-btn" disabled>▶ Run</button><button id="cancel-btn" class="ghost" style="display:none">✕ Cancel</button><span id="run-status" class="muted"></span></div>
     <progress id="run-progress" value="0" max="1" style="display:none; margin-top:10px"></progress>
     <div id="results-wrap" style="display:none; margin-top:12px">
       <div class="row" style="justify-content:space-between"><span id="results-count" class="ok"></span><button id="dl-btn" class="ghost">⬇ Download CSV</button></div>
+      <p id="results-note" class="muted" style="display:none; margin:6px 0 0"></p>
       <div class="scroll" style="margin-top:8px"><table><thead><tr><th>#</th><th>position</th><th>strand</th><th>guide (5′→3′)</th><th>GC</th></tr></thead><tbody id="results"></tbody></table></div>
     </div>
   </div>

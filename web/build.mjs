@@ -42,25 +42,39 @@ export async function buildIndex(sources, params, { fetchSeq, onProgress } = {})
   return { index, failed };
 }
 
-// Screen a target sequence against an index -> array of result rows.
+// Count every PAM-anchored target guide (both strands) for the current geometry.
+// Cheap (a PAM scan, no index lookups) -> use it to preview the search universe.
+export function countTargetGuides(targetSeq, params) {
+  return extractTargetGuides(targetSeq, params.guideLength, params.pam, params.side).packed.length;
+}
+
+// Screen a target sequence against an index. Returns {rows, scanned, total, cancelled}:
+//   total     = all PAM-anchored target guides (the universe)
+//   scanned   = how many we actually screened (< total if the cap hit or cancelled)
+//   rows      = the commensal-sparing keepers (partial if cancelled)
+//   cancelled = true if `shouldStop()` asked us to bail mid-run
 // Async + time-sliced: every ~`tickMs` of work it reports progress and yields to
-// the event loop so the browser can repaint the progress bar / ETA. Without the
-// yield the whole loop runs in one synchronous task and the bar only "appears"
-// once everything is already done.
+// the event loop so the browser can repaint the progress bar / ETA (and so a
+// Cancel click can land). Without the yield the whole loop runs in one synchronous
+// task and the bar only "appears" once everything is already done.
 export async function findSparingGuides(targetSeq, index, params,
-  { onProgress, maxGuides = 1000, positionOffset = 0, tickMs = 80 } = {}) {
+  { onProgress, shouldStop, maxGuides = 1000, positionOffset = 0, tickMs = 80 } = {}) {
   const { packed, starts, strands } = extractTargetGuides(
     targetSeq, params.guideLength, params.pam, params.side);
+  const total = packed.length;
   const flip = params.side === "3prime";
   const d = params.totalMm, s = params.seedMm;
-  const cap = maxGuides || packed.length;
+  const cap = maxGuides || total;
   const rows = [];
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
   let lastTick = now();
-  for (let i = 0; i < packed.length; i++) {
+  let scanned = total;                       // a full pass, unless the cap/cancel breaks us out early
+  let cancelled = false;
+  for (let i = 0; i < total; i++) {
     if (onProgress && now() - lastTick >= tickMs) {
-      onProgress(i, packed.length, rows.length);
-      await new Promise((r) => setTimeout(r, 0));   // let the browser paint
+      onProgress(i, total, rows.length);
+      await new Promise((r) => setTimeout(r, 0));   // let the browser paint + handle a Cancel click
+      if (shouldStop && shouldStop()) { scanned = i; cancelled = true; break; }
       lastTick = now();
     }
     const g = packed[i];
@@ -70,8 +84,8 @@ export async function findSparingGuides(targetSeq, index, params,
     let seq = unpackGuide(g, params.guideLength);
     if (flip) seq = [...seq].reverse().join("");
     rows.push({ position: starts[i] + positionOffset, strand: strands[i] ? "-" : "+", guide_sequence: seq, gc: Math.round(frac * 1000) / 1000 });
-    if (rows.length >= cap) break;
+    if (rows.length >= cap) { scanned = i + 1; break; }
   }
-  onProgress?.(packed.length, packed.length, rows.length);
-  return rows;
+  onProgress?.(scanned, total, rows.length);
+  return { rows, scanned, total, cancelled };
 }
