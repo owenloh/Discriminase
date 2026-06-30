@@ -320,11 +320,21 @@ function downloadPanel() {
 function setStatus(id, msg, bad) { const e = $(id); e.textContent = msg; e.classList.toggle("bad", !!bad); }
 
 // --- init ------------------------------------------------------------------
+// The four fields a preset pins. Editing any of them re-derives the dropdown.
+const PRESET_GEOM = ["pam", "side", "guideLength", "seedLen"];
 function applyPreset() {
   const p = PRESETS[$("preset").value];
-  if (!p) return;
+  if (!p) return;                          // "custom" pins nothing
   $("pam").value = p.pam; $("side").value = p.side;
   $("guideLength").value = p.guideLength; $("seedLen").value = p.seedLen; persistParams();
+}
+// Reflect the live params back onto the dropdown: a known nuclease if they match
+// one exactly, otherwise "custom". Keeps the label honest after manual edits.
+function syncPresetFromParams() {
+  const cur = { pam: $("pam").value.trim().toUpperCase(), side: $("side").value,
+                guideLength: +$("guideLength").value, seedLen: +$("seedLen").value };
+  const hit = Object.keys(PRESETS).find((k) => PRESET_GEOM.every((f) => PRESETS[k][f] === cur[f]));
+  $("preset").value = hit || "custom";
 }
 
 function init() {
@@ -352,6 +362,9 @@ function init() {
   };
   $("preset").onchange = applyPreset;
   PARAM_IDS.forEach((id) => $(id).addEventListener("change", persistParams));
+  // flip the preset label to "custom" (or a matching nuclease) on manual edits
+  PRESET_GEOM.forEach((id) => $(id).addEventListener("input", syncPresetFromParams));
+  syncPresetFromParams();                  // and reflect restored params on load
 
   $("cp-search").onclick = () => $("cp-name").value.trim() && searchInto($("cp-name").value.trim(), $("cp-results"),
     (c) => addSource({ name: c.organism || c.title.slice(0, 40) || c.accession, accession: c.accession, taxid: c.taxid }));
