@@ -311,7 +311,7 @@ async function run() {
   const capped = !cancelled && scanned < total;
   const dur = fmtDuration((_now() - t0) / 1000);
   setStatus("run-status", cancelled
-    ? `Cancelled after ${dur} — screened ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides (partial).`
+    ? `Stopped after ${dur} — showing ${rows.length.toLocaleString()} guides from the first ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides screened.`
     : `Done in ${dur} — screened ${scanned.toLocaleString()} / ${total.toLocaleString()} target guides.`);
   renderResults(rows, { scanned, total, capped, cancelled, maxGuides: p.maxGuides });
   track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
@@ -329,7 +329,7 @@ function renderResults(rows, meta = {}) {
   // explain when the scan didn't cover the whole target guide universe
   const note = $("results-note");
   if (cancelled) {
-    note.textContent = `Run cancelled — ${(total - scanned).toLocaleString()} of ${total.toLocaleString()} target guides weren't screened. These results are partial; press Run to start over.`;
+    note.textContent = `Stopped early — the ${rows.length.toLocaleString()} guides above are what was found in the first ${scanned.toLocaleString()} of ${total.toLocaleString()} target guides. Press Run to screen the whole target from the start.`;
     note.style.display = "block";
   } else if (capped) {
     note.textContent = `Stopped at the Max guides cap (${maxGuides.toLocaleString()}) — ${(total - scanned).toLocaleString()} target guides weren't screened. Raise “Max guides”, or narrow to a region (Step 2) to search a different part of the genome.`;
@@ -436,7 +436,7 @@ function init() {
   $("t-use-paste").onclick = () => { const s = $("t-paste").value.replace(/\s/g, ""); if (s) setTarget(s, "pasted_sequence", { type: "paste" }); };
 
   $("run-btn").onclick = run;
-  $("cancel-btn").onclick = () => { state.cancel = true; $("cancel-btn").disabled = true; setStatus("run-status", "Cancelling…"); };
+  $("cancel-btn").onclick = () => { state.cancel = true; $("cancel-btn").disabled = true; setStatus("run-status", "Stopping — showing results so far…"); };
   $("dl-btn").onclick = downloadCSV;
   $("cp-download").onclick = downloadPanel;
   updateRunnable();
