@@ -2,10 +2,10 @@
 // verified engine (engine.mjs / build.mjs / ncbi.mjs) and persistence (store.mjs).
 
 import { GuideIndex } from "./engine.mjs";
-import { buildIndex, findSparingGuides, countTargetGuides } from "./build.mjs";
+import { buildIndex, collectCommonTargetGuides, screenTargetGuides } from "./build.mjs";
 import * as ncbi from "./ncbi.mjs";
 import * as store from "./store.mjs";
-import { initAnalytics, track, targetSummary } from "./analytics.mjs";
+import { initAnalytics, track } from "./analytics.mjs";
 
 const $ = (id) => document.getElementById(id);
 const PRESETS = {
@@ -15,7 +15,8 @@ const PRESETS = {
 const PARAM_IDS = ["pam", "side", "guideLength", "seedLen", "seedMm",
                    "totalMm", "minGc", "maxGc", "maxGuides", "email"];
 
-const state = { panel: [], index: null, indexMeta: null, target: null, results: null, cancel: false };
+const state = { panel: [], index: null, indexMeta: null,
+                targets: [], targetGuides: null, results: null, cancel: false, pasteCount: 0 };
 
 // --- parameters ------------------------------------------------------------
 function params() {
@@ -36,28 +37,48 @@ function restoreParams() {
   if (v) PARAM_IDS.forEach((id) => { if (v[id] != null) $(id).value = v[id]; });
 }
 
-// --- commensal panel -------------------------------------------------------
+// --- source tables (shared by the commensal panel and the target panel) ----
 function srcLabel(s) { return s.accession ? `acc ${s.accession}` : s.taxid ? `txid ${s.taxid}` : s.uploaded ? "uploaded" : "—"; }
-function renderPanel() {
-  const tb = $("panel-list");
+function renderSourceTable(tbodyId, list, emptyMsg, onChange) {
+  const tb = $(tbodyId);
   tb.innerHTML = "";
-  if (!state.panel.length) { tb.innerHTML = `<tr><td colspan="4" class="muted">No commensals yet. Add some above.</td></tr>`; return; }
-  state.panel.forEach((s, i) => {
+  if (!list.length) { tb.innerHTML = `<tr><td colspan="4" class="muted">${emptyMsg}</td></tr>`; return; }
+  list.forEach((s, i) => {
     const tr = document.createElement("tr");
-    const status = s.status ? `<span class="pill ${s.status === "failed" ? "bad" : "ok"}">${s.status}${s.guides ? " · " + s.guides : ""}</span>` : "";
-    tr.innerHTML = `<td>${s.name}</td><td class="muted">${srcLabel(s)}</td><td>${status}</td><td><button class="ghost" data-i="${i}">✕</button></td>`;
-    tr.querySelector("button").onclick = () => { state.panel.splice(i, 1); renderPanel(); savePanelState(); };
+    const status = s.status ? `<span class="pill ${s.status === "failed" ? "bad" : "ok"}">${s.status}${s.guides != null ? " · " + s.guides : ""}</span>` : "";
+    tr.innerHTML = `<td>${s.name}</td><td class="muted">${srcLabel(s)}</td><td>${status}</td><td><button class="ghost">✕</button></td>`;
+    tr.querySelector("button").onclick = () => { list.splice(i, 1); onChange(); };
     tb.appendChild(tr);
   });
 }
+function sourceKey(s) { return s.accession || s.taxid || ("up:" + s.name); }
+
+// --- commensal panel -------------------------------------------------------
+function renderPanel() {
+  renderSourceTable("panel-list", state.panel, "No commensals yet. Add some on the right.",
+    () => { renderPanel(); savePanelState(); });
+}
 function addSource(s) {
-  const key = s.accession || s.taxid || ("up:" + s.name);
-  if (state.panel.some((x) => (x.accession || x.taxid || ("up:" + x.name)) === key)) return;
+  if (state.panel.some((x) => sourceKey(x) === sourceKey(s))) return;
   state.panel.push(s); renderPanel(); savePanelState();
 }
 function savePanelState() {
   // persist metadata only (not uploaded sequences — too big for localStorage)
   store.saveSetting("panel", state.panel.filter((s) => !s.uploaded).map((s) => ({ name: s.name, accession: s.accession, taxid: s.taxid })));
+}
+
+// --- target panel (mirrors the commensal panel) ----------------------------
+function renderTargets() {
+  renderSourceTable("target-list", state.targets, "No targets yet. Add some on the right.",
+    () => { state.targetGuides = null; renderTargets(); saveTargetState(); updateRunnable(); });
+}
+function addTarget(s) {
+  if (state.targets.some((x) => sourceKey(x) === sourceKey(s))) return;
+  state.targets.push(s); state.targetGuides = null;   // panel changed -> recompute needed
+  renderTargets(); saveTargetState(); updateRunnable();
+}
+function saveTargetState() {
+  store.saveSetting("targets", state.targets.filter((s) => !s.uploaded).map((s) => ({ name: s.name, accession: s.accession, taxid: s.taxid })));
 }
 
 async function searchInto(query, container, onPick, single = false) {
@@ -90,7 +111,11 @@ async function readFasta(file) {
   return text.split("\n").filter((l) => !l.startsWith(">")).join("").replace(/\s/g, "");
 }
 
-// --- build / load index ----------------------------------------------------
+function fetchSeqFor(s, email) {
+  return s.accession ? ncbi.fetchSequence(s.accession, { email }) : ncbi.fetchSequenceByTaxid(s.taxid, { email });
+}
+
+// --- build / load commensal index ------------------------------------------
 function panelKey(p) {
   const geom = { L: p.guideLength, pam: p.pam, side: p.side, seed: p.seedLen };
   const srcs = state.panel.map((s) => s.accession || s.taxid || ("up:" + s.name + ":" + (s.seq ? s.seq.length : 0))).sort();
@@ -111,7 +136,7 @@ async function buildOrLoad() {
   $("build-btn").disabled = true;
   try {
     const { index, failed } = await buildIndex(state.panel, p, {
-      fetchSeq: (s) => s.accession ? ncbi.fetchSequence(s.accession, { email: p.email }) : ncbi.fetchSequenceByTaxid(s.taxid, { email: p.email }),
+      fetchSeq: (s) => fetchSeqFor(s, p.email),
       onProgress: (ev) => {
         const src = state.panel.find((s) => s.name === ev.name);
         if (src) { src.status = ev.status; src.guides = ev.guides; }
@@ -165,7 +190,7 @@ function saveNamedPanel() {
 function loadPanelSources(sources, label) {
   if (!sources.length) return setStatus("build-status", "That panel had no usable organisms.", true);
   state.panel = sources; renderPanel(); savePanelState();
-  setStatus("build-status", `Loaded ${sources.length} organisms${label ? " from " + label : ""}. Now press “Build / load index”.`);
+  setStatus("build-status", `Loaded ${sources.length} organisms${label ? " from " + label : ""}. Now press “Build commensal index”.`);
 }
 async function loadExamplePanel(file) {
   setStatus("build-status", "Loading example panel…");
@@ -219,44 +244,52 @@ async function loadPrebuilt(prefix) {
   } catch (e) { setStatus("build-status", String(e), true); }
 }
 
-// --- target ----------------------------------------------------------------
-function setTarget(seq, label, info = { type: "unknown" }) {
-  state.target = { seq, label, info };
-  const box = $("t-status");
-  box.classList.add("has");
-  box.innerHTML = `✓ Target: <b>${label}</b><br><span class="muted">${seq.length.toLocaleString()} bp · ${info.type}</span>`;
-  track("target", targetSummary(info, seq));
-  refreshGuideEstimate();
-  updateRunnable();
-}
-
-// The [start, end) slice the region inputs select within a sequence of length n.
-function regionBounds(n) {
+// --- find common target guides (Step 2 action) -----------------------------
+// The region inputs, parsed; only honoured when there is a single target.
+function regionFromInputs() {
   const rs = parseInt($("region-start").value, 10), re = parseInt($("region-end").value, 10);
+  if (!Number.isFinite(rs) && !Number.isFinite(re)) return null;
   return { start: Number.isFinite(rs) ? Math.max(0, rs) : 0,
-           end: Number.isFinite(re) ? Math.min(n, re) : n };
+           end: Number.isFinite(re) ? re : Infinity };
 }
-
-// Preview the search universe in Step 2: how many PAM-anchored target guides exist
-// for the current geometry + region, and whether Max guides would cap the run.
-function refreshGuideEstimate() {
-  const el = $("t-guide-est");
-  if (!state.target) { el.textContent = ""; return; }
+async function findCommonTargetGuides() {
+  if (!state.targets.length) return setStatus("target-status", "Add at least one target first.", true);
   const p = params();
-  const { start, end } = regionBounds(state.target.seq.length);
-  if (end <= start) { el.textContent = "Region end must be greater than start."; return; }
-  const sub = (start > 0 || end < state.target.seq.length) ? state.target.seq.slice(start, end) : state.target.seq;
-  let n;
-  try { n = countTargetGuides(sub, p); } catch { el.textContent = ""; return; }
-  const where = sub !== state.target.seq ? ` in bp ${start.toLocaleString()}–${end.toLocaleString()}` : "";
-  const capped = p.maxGuides && n > p.maxGuides
-    ? ` — Run will screen only the first ${p.maxGuides.toLocaleString()} (Max guides); raise it or pick a region to cover the rest`
-    : "";
-  el.textContent = `${n.toLocaleString()} potential ${p.pam} target guides${where}${capped}`;
+  state.targets.forEach((s) => { s.status = undefined; s.guides = undefined; });   // clear stale row pills
+  renderTargets();
+  let region = null;
+  if (state.targets.length === 1) {
+    region = regionFromInputs();
+    if (region && region.end <= region.start) return setStatus("target-status", "Region end must be greater than start.", true);
+  }
+  $("target-btn").disabled = true;
+  try {
+    const res = await collectCommonTargetGuides(state.targets, p, {
+      fetchSeq: (s) => fetchSeqFor(s, p.email),
+      onProgress: (ev) => {
+        const src = state.targets.find((s) => s.name === ev.name);
+        if (src) { src.status = ev.status; src.guides = ev.guides; }
+        renderTargets();
+        setStatus("target-status", `${ev.status} ${ev.name} (${ev.i + 1}/${ev.n})…`);
+      },
+      region,
+    });
+    state.targetGuides = res;
+    const failNote = res.failed.length ? ` · ${res.failed.length} failed` : "";
+    const scope = res.organisms.length > 1 ? `shared by all ${res.organisms.length} targets` : `in ${res.organisms[0]?.name ?? "target"}`;
+    const capNote = p.maxGuides && res.total > p.maxGuides ? ` — Run screens the first ${p.maxGuides.toLocaleString()} (Max guides)` : "";
+    setStatus("target-status", `${res.total.toLocaleString()} common target guides ${scope}${failNote}${capNote}.`, res.total === 0);
+    track("find_targets", { preset: $("preset").value, pam: p.pam, side: p.side,
+      n_targets: res.organisms.length, common: res.total, failed: res.failed.length });
+  } catch (e) {
+    setStatus("target-status", String(e), true);
+  } finally { $("target-btn").disabled = false; updateRunnable(); }
 }
 
 // --- run -------------------------------------------------------------------
-function updateRunnable() { $("run-btn").disabled = !(state.index && state.target); }
+function updateRunnable() {
+  $("run-btn").disabled = !(state.index && state.targetGuides && state.targetGuides.total > 0);
+}
 const _now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 function fmtDuration(s) {                      // 7s · 1m 03s · 1h 04m
   s = Math.max(0, Math.round(s));
@@ -269,13 +302,7 @@ async function run() {
   const btn = $("run-btn");
   if (btn.disabled) return;
   const p = params();
-  // optional region: restrict to bases [start, end) of the target
-  let seq = state.target.seq, offset = 0;
-  const { start, end } = regionBounds(seq.length);
-  if (start > 0 || end < seq.length) {
-    if (end <= start) return setStatus("run-status", "Region end must be greater than start.", true);
-    seq = seq.slice(start, end); offset = start;
-  }
+  const tg = state.targetGuides;
   btn.disabled = true;
   const cancelBtn = $("cancel-btn");
   state.cancel = false;
@@ -285,8 +312,8 @@ async function run() {
   const t0 = _now();
   let result;
   try {
-    result = await findSparingGuides(seq, state.index, p, {
-      maxGuides: p.maxGuides, positionOffset: offset,
+    result = await screenTargetGuides(tg, state.index, p, {
+      maxGuides: p.maxGuides,
       shouldStop: () => state.cancel,
       onProgress: (done, total, kept) => {
         bar.max = total || 1; bar.value = done;
@@ -316,9 +343,7 @@ async function run() {
   renderResults(rows, { scanned, total, capped, cancelled, maxGuides: p.maxGuides });
   track("run", { preset: $("preset").value, pam: p.pam, side: p.side, seedMm: p.seedMm,
     totalMm: p.totalMm, minGc: p.minGc, maxGc: p.maxGc, maxGuides: p.maxGuides,
-    region_start: offset || undefined, region_len: seq.length,
-    ...targetSummary(state.target.info, state.target.seq), kept: rows.length,
-    target_guides: total, scanned, capped, cancelled });
+    n_targets: tg.organisms.length, target_guides: total, scanned, capped, cancelled, kept: rows.length });
 }
 function renderResults(rows, meta = {}) {
   $("results-wrap").style.display = "block";
@@ -347,9 +372,11 @@ function renderResults(rows, meta = {}) {
 function downloadCSV() {
   const rows = state.results || [];
   const csv = ["position,strand,guide_sequence,gc", ...rows.map((r) => `${r.position},${r.strand},${r.guide_sequence},${r.gc}`)].join("\n");
+  const orgs = state.targetGuides?.organisms || [];
+  const base = orgs.length > 1 ? "common_targets" : (orgs[0]?.name || "target");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = `${(state.target?.label || "target").replace(/[^A-Za-z0-9]+/g, "_")}_guides.csv`;
+  a.download = `${base.replace(/[^A-Za-z0-9]+/g, "_")}_guides.csv`;
   a.click(); URL.revokeObjectURL(a.href);
 }
 
@@ -374,7 +401,7 @@ function applyPreset() {
   if (!p) return;                          // "custom" pins nothing
   $("pam").value = p.pam; $("side").value = p.side;
   $("guideLength").value = p.guideLength; $("seedLen").value = p.seedLen; persistParams();
-  refreshGuideEstimate();
+  invalidateGuides();
 }
 // Reflect the live params back onto the dropdown: a known nuclease if they match
 // one exactly, otherwise "custom". Keeps the label honest after manual edits.
@@ -384,12 +411,19 @@ function syncPresetFromParams() {
   const hit = Object.keys(PRESETS).find((k) => PRESET_GEOM.every((f) => PRESETS[k][f] === cur[f]));
   $("preset").value = hit || "custom";
 }
+// Changing geometry or region makes any computed common-target-guide set stale.
+function invalidateGuides() {
+  if (state.targetGuides) { state.targetGuides = null; setStatus("target-status", "Geometry changed — press “Find common target guides” again."); }
+  updateRunnable();
+}
 
 function init() {
   restoreParams();
-  // restore last panel (metadata only)
+  // restore last panel + targets (metadata only)
   (store.loadSetting("panel", []) || []).forEach((s) => state.panel.push(s));
-  renderPanel(); refreshSavedPanels(); loadPrebuiltList(); loadExampleList(); initAnalytics();
+  (store.loadSetting("targets", []) || []).forEach((s) => state.targets.push(s));
+  renderPanel(); renderTargets();
+  refreshSavedPanels(); loadPrebuiltList(); loadExampleList(); initAnalytics();
 
   // onboarding guide: a right-side drawer. Opens on first visit, reopen via header.
   const guide = $("guide"), overlay = $("guide-overlay");
@@ -412,11 +446,12 @@ function init() {
   PARAM_IDS.forEach((id) => $(id).addEventListener("change", persistParams));
   // flip the preset label to "custom" (or a matching nuclease) on manual edits
   PRESET_GEOM.forEach((id) => $(id).addEventListener("input", syncPresetFromParams));
-  // recompute the Step 2 guide-count preview on geometry / region / cap edits (on blur)
-  [...PRESET_GEOM, "region-start", "region-end", "maxGuides"].forEach((id) =>
-    $(id).addEventListener("change", refreshGuideEstimate));
+  // geometry / region edits invalidate the common-target-guide set
+  [...PRESET_GEOM, "region-start", "region-end"].forEach((id) =>
+    $(id).addEventListener("change", invalidateGuides));
   syncPresetFromParams();                  // and reflect restored params on load
 
+  // commensal panel
   $("cp-search").onclick = () => $("cp-name").value.trim() && searchInto($("cp-name").value.trim(), $("cp-results"),
     (c) => addSource({ name: c.organism || c.title.slice(0, 40) || c.accession, accession: c.accession, taxid: c.taxid }));
   $("cp-add-acc").onclick = () => { const a = $("cp-acc").value.trim(); if (a) { addSource({ name: a, accession: a }); $("cp-acc").value = ""; } };
@@ -429,12 +464,16 @@ function init() {
     loadPanelSources(parsePanelCsv(await f.text()), f.name); e.target.value = "";
   };
 
+  // target panel (mirrors the commensal panel; adds the paste-DNA option)
   $("t-search").onclick = () => { const q = $("t-name").value.trim(); if (!q) return; track("search_target", { query: q }); searchInto(q, $("t-results"),
-    async (c) => { setStatus("t-status", `Fetching ${c.accession}…`); try { const { seq } = await ncbi.fetchSequence(c.accession, { email: params().email }); setTarget(seq, c.accession, { type: "name", value: c.accession, name: q }); } catch (err) { setStatus("t-status", String(err), true); } }, true); };
-  $("t-use-acc").onclick = async () => { const a = $("t-acc").value.trim(); if (!a) return; setStatus("t-status", `Fetching ${a}…`); try { const { seq } = await ncbi.fetchSequence(a, { email: params().email }); setTarget(seq, a, { type: "accession", value: a }); } catch (e) { setStatus("t-status", String(e), true); } };
-  $("t-file").onchange = async (e) => { const f = e.target.files[0]; if (f) setTarget(await readFasta(f), f.name, { type: "upload", name: f.name }); };
-  $("t-use-paste").onclick = () => { const s = $("t-paste").value.replace(/\s/g, ""); if (s) setTarget(s, "pasted_sequence", { type: "paste" }); };
+    (c) => addTarget({ name: c.organism || c.title.slice(0, 40) || c.accession, accession: c.accession, taxid: c.taxid })); };
+  $("t-add-acc").onclick = () => { const a = $("t-acc").value.trim(); if (a) { addTarget({ name: a, accession: a }); $("t-acc").value = ""; } };
+  $("t-add-tax").onclick = () => { const t = $("t-tax").value.trim(); if (t) { addTarget({ name: "txid" + t, taxid: t }); $("t-tax").value = ""; } };
+  $("t-file").onchange = async (e) => { for (const f of e.target.files) addTarget({ name: f.name, seq: await readFasta(f), uploaded: true }); e.target.value = ""; };
+  $("t-add-paste").onclick = () => { const s = $("t-paste").value.replace(/\s/g, ""); if (s) { addTarget({ name: `pasted #${++state.pasteCount} (${s.length.toLocaleString()} bp)`, seq: s, uploaded: true }); $("t-paste").value = ""; } };
+  $("target-btn").onclick = findCommonTargetGuides;
 
+  // run
   $("run-btn").onclick = run;
   $("cancel-btn").onclick = () => { state.cancel = true; $("cancel-btn").disabled = true; setStatus("run-status", "Stopping — showing results so far…"); };
   $("dl-btn").onclick = downloadCSV;
