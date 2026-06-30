@@ -137,6 +137,8 @@ The whole app is static files in `web/`. To put it online for others:
 - **Netlify / GitHub Pages / Cloudflare Pages:** publish the `web/` folder. Done —
   share the URL. NCBI's genome API allows browser requests (CORS is open), so users'
   browsers fetch genomes directly; nothing runs on your server.
+- **Railway:** the included `Dockerfile` + `Caddyfile` serve `web/` on Railway's
+  `$PORT`. Step-by-step in [docs/DEPLOY.md](docs/DEPLOY.md).
 - **Prebuilt panels (optional):** so users don't have to build a panel themselves,
   generate one offline and ship it as a static file:
 

@@ -1,0 +1,14 @@
+# Serves the static web app on Railway's injected $PORT (80 locally).
+:{$PORT:80} {
+	root * /srv
+	encode gzip
+	file_server
+
+	# ES modules must be served as JavaScript; be explicit so no host gets it wrong.
+	@mjs path *.mjs
+	header @mjs Content-Type "text/javascript; charset=utf-8"
+
+	# Don't let browsers cache stale app code between deploys.
+	@assets path *.mjs *.js *.html
+	header @assets Cache-Control "no-cache"
+}
