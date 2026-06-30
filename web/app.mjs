@@ -277,7 +277,7 @@ async function findCommonTargetGuides() {
     state.targetGuides = res;
     const failNote = res.failed.length ? ` · ${res.failed.length} failed` : "";
     const scope = res.organisms.length > 1 ? `shared by all ${res.organisms.length} targets` : `in ${res.organisms[0]?.name ?? "target"}`;
-    const capNote = p.maxGuides && res.total > p.maxGuides ? ` — Run screens the first ${p.maxGuides.toLocaleString()} (Max guides)` : "";
+    const capNote = p.maxGuides && res.total > p.maxGuides ? ` — Run screens the first ${p.maxGuides.toLocaleString()} valid guides` : "";
     setStatus("target-status", `${res.total.toLocaleString()} common target guides ${scope}${failNote}${capNote}.`, res.total === 0);
     track("find_targets", { preset: $("preset").value, pam: p.pam, side: p.side,
       n_targets: res.organisms.length, common: res.total, failed: res.failed.length });
