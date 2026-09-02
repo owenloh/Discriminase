@@ -53,18 +53,44 @@ normal file, well under limits, but don't commit hundreds of them.)
 
 ## Usage analytics ("how many people / what for")
 
-The static app has no backend, so analytics is a deliberate add-on. Two routes — pick
-in the chat and I'll wire it:
+The static app has no backend, so analytics is a separate Railway service:
+self-hosted **Umami** (`ghcr.io/umami-software/umami:postgresql-latest`) backed by the
+project's **Postgres**. `web/analytics.mjs` loads its `script.js` and sends coarse
+`umami.track(...)` events; `web/config.js` holds the website id and script URL, and the
+whole thing is a no-op if those are left empty.
 
-- **Self-hosted Umami on Railway (recommended).** Add Umami (open-source,
-  privacy-friendly) as a second Railway service with a Postgres plugin — Railway has a
-  one-click template. The app sends a tiny `umami.track("run", {...})` on each run/build.
-  You get visitor counts **and** custom events ("what for"), you own the data, no custom
-  backend code to maintain.
-- **Custom backend.** A small server (serve `web/` + `POST /api/event` → Postgres +
-  a protected `/api/stats`). Full control, more code and maintenance.
+Log **coarse, non-identifying** events only (nuclease used, panel size, whether the
+target came from a name/accession/upload, how many guides were found) — never uploaded
+FASTA contents or long sequences. `analytics.mjs` enforces this: uploads log
+filename + length, and pasted DNA is only sent verbatim at or under 120 bases.
 
-Either way, log **coarse, non-identifying** events by default (nuclease used, panel
-size, whether the target came from a name/accession/upload, how many guides were found)
-— not the actual sequences or specific target organisms, which can be sensitive in
-research. We can dial that up if you want more detail.
+### Cost: Umami is billed for idle RAM, not traffic
+
+Railway bills resident memory around the clock (~$10/GB-month) and CPU separately
+(~$20/vCPU-month). At this site's traffic CPU is effectively zero, so **Umami's whole
+bill is its idle footprint** — a Next.js server that sat at ~344 MB flat while serving
+roughly 600 requests a month. It is not a leak: the high-water mark and the floor were
+within 55 MB of each other over a week. It is just Node's baseline, billed 24/7.
+
+These service variables cap that baseline (set on the **Umami** service in Railway):
+
+| Variable | Value | Why |
+| --- | --- | --- |
+| `NODE_OPTIONS` | `--max-old-space-size=160 --max-semi-space-size=2` | V8 otherwise sizes its heap against the host's RAM and never feels pressure to collect. The second flag drops the scavenger's semi-spaces from the 16 MB default. |
+| `UV_THREADPOOL_SIZE` | `2` | Four libuv worker threads is oversubscribed for this load. |
+| `DISABLE_TELEMETRY` | `1` | Stops Umami's periodic phone-home to umami.is. |
+| `NEXT_TELEMETRY_DISABLED` | `1` | Same for Next.js. |
+
+Keep `--max-old-space-size` at 160 or above: the container runs `prisma migrate deploy`
+before the server starts, and that CLI needs real headroom. If Umami ever crashloops on
+boot after a version bump, raise it before assuming the image is broken.
+
+**Serverless (app sleeping) does not work here.** Railway decides a service is idle from
+its *outbound* packets, and Umami holds a Prisma connection pool open against Postgres,
+so it would rarely sleep. Worse, Railway documents that the first request to a slept
+service can return 502 — and for analytics that first request *is* the pageview you
+wanted to record.
+
+If the idle cost still isn't worth it, Umami Cloud's free tier (100k events/month, 3
+websites, 6 months retention) speaks the same `umami.track` API: point `src` and
+`websiteId` in `web/config.js` at it and delete both the Umami and Postgres services.
